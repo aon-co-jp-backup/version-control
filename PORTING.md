@@ -4,7 +4,8 @@
 - Rust 製の単一バイナリ。単体テスト 6 件成功。デモ画面(`/demo/`)は実ブラウザで表示確認済み。
 - VPS 配置済み(2026-10-26): `/root/easy-web.tokyo/version-control`、`version-control-web.service`(127.0.0.1:**8126**、8125 は `open-mirror` が使用中)、`open-web-server/domains.toml` に `/version-control` を追加(`/root/open-web-server/domains.toml` と `/root/easy-web.tokyo/open-web-server/domains.toml` は同一ファイル〈ハードリンク〉)、`version-control.timer`(00/06/12/18 時の :20)。バックアップ: `domains.toml.bak-versioncontrol`。
 - 初回走査(VPS、40 リポジトリ・927 依存): メジャー更新 326・クローン遅れ 12・分岐 4・マイナー 3・パッチ 6。
-- 未確認: 実際のメール送信・LINE push(宛先・トークン未設定のため、タイマー実行は通知なしで画面データだけ更新する)。
+- メール通知: VPS から `--test-notify` で SMTP 送信成功(2026-10-26、宛先 norukia.jp@gmail.com、`env` は open-easy-web と同じ SMTP 設定を `EnvironmentFile` に複製、git 管理外)。受信の目視確認はユーザー側。
+- 未了: LINE push(トークン・ユーザー ID 未設定。設定後 `--test-notify` で確認)。
 
 ## 通知の設定(ユーザー作業が必要)
 1. メール: `OPEN_EASYWEB_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM`(open-easy-web と同じ)を環境変数に。宛先は `config.toml` の `notify.email_to`。
