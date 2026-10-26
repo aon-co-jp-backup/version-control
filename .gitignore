@@ -4,3 +4,5 @@ state.json
 reports/
 /site/
 scan.log
+env
+run.log
