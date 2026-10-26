@@ -1,0 +1,40 @@
+# Copy to config.toml (git-ignored). Secrets are passed as paths to txt files, never written here.
+
+# Folder that holds all the repository clones (one level down).
+root = "F:/"
+# Repositories to skip (folder names).
+# Repositories whose names must not appear on the public dashboard.
+private = ["aruaru-db-archive", "realdata.pro"]
+site_dir = "site"
+exclude = ["_anon", "_gen", "tmp", "var", "open-media-test", "make-disk-target-alt", "make-disk-target-rel"]
+
+# Maintainers that normally keep things current. If none of them answers, every
+# non-trivial finding is escalated to Claude.
+# Each maintainer is probed with a GET on health_url; an empty url counts as "not running".
+[[maintainers]]
+name = "aruaru-llm"
+health_url = "http://127.0.0.1:4600/v1/accelerators"
+[[maintainers]]
+name = "open-cuda"
+health_url = ""
+[[maintainers]]
+name = "open-cpu"
+health_url = ""
+[[maintainers]]
+name = "open-directx"
+health_url = ""
+
+[policy]
+# Patch/minor bumps of >=1.0 dependencies are left to the maintainers;
+# majors, 0.x minors, stale clones and scan errors are escalated to Claude.
+fetch_clones = true          # run `git fetch` per clone to see whether it is behind origin
+registry_cache_hours = 20
+max_items_per_message = 12   # one message per repository, this many lines at most
+
+[notify]
+# E-mail: same SMTP environment variables as open-easy-web
+#   OPEN_EASYWEB_SMTP_HOST / PORT / USERNAME / PASSWORD / FROM
+email_to = ["you@example.com"]
+# LINE Messaging API push (LINE Notify ended on 2025-03-31).
+line_token_file = "F:/line-channel-token.txt"   # long-lived channel access token
+line_to_file = "F:/line-user-id.txt"            # your LINE user id (starts with U)

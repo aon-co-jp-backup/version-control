@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>version-control</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--line:#e3e2dc;--ok:#1f7a4d;--warn:#a15c00;--bad:#b3261e;--acc:#2a5db0}
+@media (prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe6;--mut:#a09f98;--card:#1f1f1c;--line:#333330;--ok:#5cc08d;--warn:#e0a24a;--bad:#f2837b;--acc:#8ab4f8}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:920px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.1rem;margin:28px 0 8px}
+.sub{color:var(--mut);margin:0 0 16px}
+.banner{border:1px solid var(--warn);color:var(--warn);border-radius:8px;padding:8px 12px;margin:12px 0}
+.row{display:flex;flex-wrap:wrap;gap:12px}
+.stat{flex:1 1 140px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.stat b{display:block;font-size:1.6rem}.stat span{color:var(--mut);font-size:.85rem}
+.pill{display:inline-block;border-radius:999px;padding:0 10px;font-size:.8rem;border:1px solid var(--line)}
+.up{color:var(--ok)}.down{color:var(--bad)}
+details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:8px 0;padding:8px 12px}
+summary{cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:.88rem}
+td,th{text-align:left;padding:4px 6px;border-top:1px solid var(--line);vertical-align:top;word-break:break-word}
+.major,.diverged,.error{color:var(--bad)}.minor,.behind{color:var(--warn)}.patch{color:var(--mut)}
+a{color:var(--acc)}footer{margin-top:32px;color:var(--mut);font-size:.85rem}
+</style>
+</head>
+<body>
+<main>
+<h1>version-control</h1>
+<p class="sub">全リポジトリが最新のライブラリ・API・リポジトリを使っているかを見張り、自動保守(aruaru-llm / open-cuda / open-cpu / open-directx)で足りないときは、Claude に貼り付けるメッセージをメールと LINE で知らせます。</p>
+<div id="demo" class="banner" hidden>これはデモです。表示している数値・リポジトリ名はすべてサンプルで、実際の状況ではありません。実運用の画面は <a href="../">こちら</a>。</div>
+<div id="app">読み込み中…</div>
+<footer>
+<a href="https://github.com/aon-co-jp/version-control">GitHub: aon-co-jp/version-control</a> ・ ライセンス MIT<br>
+自動では <code>git pull</code> も依存の書き換えもしません。「Claude へ」の項目だけが通知の対象です。
+</footer>
+</main>
+<script>
+(function(){
+  var app=document.getElementById('app');
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  var label={major:'メジャー更新',minor:'マイナー更新',patch:'パッチ更新',behind:'クローンが遅れ',diverged:'履歴が分岐',error:'読み取り不可'};
+  fetch('status.json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(s){
+    if(s.demo)document.getElementById('demo').hidden=false;
+    var total=0,toClaude=0,toMaint=0,checked=0;
+    s.repos.forEach(function(r){checked+=r.deps_checked;r.items.forEach(function(i){total++;if(i.route==='claude')toClaude++;else toMaint++})});
+    var h='<div class="row">'+
+      '<div class="stat"><b>'+s.repos.length+'</b><span>確認したリポジトリ'+(s.hidden_private?'(ほか非公開'+s.hidden_private+'件)':'')+'</span></div>'+
+      '<div class="stat"><b>'+checked+'</b><span>確認した依存</span></div>'+
+      '<div class="stat"><b style="color:var(--bad)">'+toClaude+'</b><span>Claude で対応が必要</span></div>'+
+      '<div class="stat"><b>'+toMaint+'</b><span>自動保守に任せる分</span></div></div>';
+    h+='<h2>自動保守の稼働状況</h2><p>'+s.maintainers.map(function(m){return '<span class="pill '+(m.alive?'up':'down')+'">'+esc(m.name)+' '+(m.alive?'稼働中':'停止/未設定')+'</span>'}).join(' ')+'</p>';
+    h+='<h2>リポジトリ別</h2>';
+    var repos=s.repos.slice().sort(function(a,b){
+      var ca=a.items.filter(function(i){return i.route==='claude'}).length,cb=b.items.filter(function(i){return i.route==='claude'}).length;
+      return cb-ca||a.name.localeCompare(b.name)});
+    repos.forEach(function(r){
+      var c=r.items.filter(function(i){return i.route==='claude'}).length;
+      h+='<details'+(c?' open':'')+'><summary><span><b>'+esc(r.name)+'</b></span><span class="pill '+(c?'down':'up')+'">'+(c?'Claude へ '+c+'件':(r.items.length?'自動保守 '+r.items.length+'件':'最新'))+'</span></summary>';
+      if(r.items.length){
+        h+='<table><tr><th>種別</th><th>名前</th><th>現在</th><th>最新</th><th>状態</th><th>担当</th></tr>';
+        r.items.forEach(function(i){h+='<tr><td>'+esc(i.source)+'</td><td>'+esc(i.name)+'</td><td>'+esc(i.req)+'</td><td>'+esc(i.latest)+'</td><td class="'+esc(i.gap)+'">'+esc(label[i.gap]||i.gap)+'</td><td>'+(i.route==='claude'?'Claude':'自動保守')+'</td></tr>'});
+        h+='</table>';
+      }
+      h+='<p class="sub">依存 '+r.deps_checked+'件を確認'+(r.unchecked?'(うち'+r.unchecked+'件は取得できず)':'')+'</p></details>';
+    });
+    h+='<p class="sub">更新: '+new Date(s.generated_at*1000).toLocaleString('ja-JP')+'</p>';
+    app.innerHTML=h;
+  }).catch(function(e){app.textContent='状況を読み込めませんでした: '+e.message});
+})();
+</script>
+</body>
+</html>
