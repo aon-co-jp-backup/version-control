@@ -55,10 +55,14 @@ target/release/version-control --demo     # 公開デモ用のサンプルデー
 
 VPS では `easy-web.tokyo/version-control` として静的配信し、systemd タイマーで 1 日数回実行します。手順は [`PORTING.md`](PORTING.md)。
 
-## 確認できていないこと
+## 確認状況
 
-- 実際のメール送信と LINE push(宛先・トークンの設定後に `--test-notify` で確認)。
+- メール通知は実働(VPS のタイマー実行で送信、2026-10-28)。**LINE push は未設定**(トークン・ユーザー ID を置いて `--test-notify`)。
 - `aruaru-llm` などの稼働判定は「応答するか」だけで、実際の保守能力は見ていません。
+
+## お引越し
+
+別のアカウント・PC・VPS への移し方と**再開用メッセージ**は [`PORTING.md`](PORTING.md)。必要なもの(`config.toml`・`env`・LINE の 2 ファイル)は git 管理外で、値はチャットやコミットに出さない。
 
 ---
 
@@ -71,4 +75,7 @@ Watches every `aon-co-jp` repository for outdated libraries and stale clones. Wh
 - Range requirements (`^1.2`, `1.2`) only count a new major (0.x: a new minor) as a gap; `~` also counts minors, `=` everything.
 - Majors, stale/diverged clones and unreadable manifests always go to Claude; minor/patch gaps of `~`/`=` pins go to the maintainers while at least one answers its `health_url`, otherwise to Claude.
 - It never rewrites dependencies and never runs `git pull`; an unchanged problem is announced only once. Private repository names are left out of the dashboard data.
-- Not yet verified: real SMTP / LINE delivery (use `--test-notify` after configuring).
+- E-mail works (sent by the VPS timer, 2026-10-28). **LINE is not set up yet** (place the token and user id, then `--test-notify`).
+
+### Migration
+How to move it to another account / PC / VPS and the **resume message** are in [`PORTING.md`](PORTING.md). What you need (`config.toml`, `env`, the two LINE files) is git-ignored; never put the values in chat or commits.
