@@ -32,11 +32,18 @@ const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "vendor", "dist",
 
 pub fn find_manifests(repo: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    walk(repo, 0, &mut out);
+    walk(repo, 0, &["Cargo.toml", "package.json", "composer.json"], &mut out);
     out
 }
 
-fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+/// Files with exactly this name below a repository (same depth and skip rules as the manifests).
+pub fn find_files(repo: &Path, file_name: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    walk(repo, 0, &[file_name], &mut out);
+    out
+}
+
+fn walk(dir: &Path, depth: usize, names: &[&str], out: &mut Vec<PathBuf>) {
     if depth > 4 {
         return;
     }
@@ -46,9 +53,9 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         let name = e.file_name().to_string_lossy().to_string();
         if p.is_dir() {
             if !SKIP_DIRS.contains(&name.as_str()) {
-                walk(&p, depth + 1, out);
+                walk(&p, depth + 1, names, out);
             }
-        } else if matches!(name.as_str(), "Cargo.toml" | "package.json" | "composer.json") {
+        } else if names.contains(&name.as_str()) {
             out.push(p);
         }
     }

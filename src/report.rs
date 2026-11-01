@@ -8,7 +8,7 @@ pub struct Item {
     pub name: String,
     pub req: String,
     pub latest: String,
-    /// "patch" | "minor" | "major" | "behind" | "diverged" | "error"
+    /// "patch" | "minor" | "major" | "behind" | "diverged" | "error" | "vuln" | "advisory"
     pub gap: String,
     /// "maintainer" (aruaru-llm / open-cuda side) or "claude"
     pub route: String,
@@ -49,10 +49,12 @@ impl RepoStatus {
 
 fn rank(gap: &str) -> u8 {
     match gap {
+        "vuln" => 0,
         "diverged" => 0,
         "error" => 1,
         "major" => 2,
         "behind" => 3,
+        "advisory" => 4,
         "minor" => 4,
         _ => 5,
     }
@@ -63,6 +65,8 @@ fn line(i: &Item) -> String {
         "behind" => format!("- クローンがoriginより{}コミット遅れ ({})", i.latest, i.name),
         "diverged" => format!("- クローンとoriginが分岐 ({}) — 取り込む前にユーザーへ確認", i.latest),
         "error" => format!("- {}: {} ({})", i.source, i.latest, i.file),
+        "vuln" => format!("- 【脆弱性】{} {} ({}): {} [{}]", i.name, i.req, i.file, i.latest, i.source),
+        "advisory" => format!("- 【勧告】{} {} ({}): {}", i.name, i.req, i.file, i.latest),
         _ => format!("- {} {}: {} → {} [{}, {}]", i.source, i.name, i.req, i.latest, i.gap, i.file),
     }
 }

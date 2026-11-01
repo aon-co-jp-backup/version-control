@@ -6,3 +6,4 @@ reports/
 scan.log
 env
 run.log
+advisory-db/

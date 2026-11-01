@@ -17,6 +17,8 @@ pub struct Config {
     pub policy: Policy,
     #[serde(default)]
     pub notify: Notify,
+    #[serde(default)]
+    pub advisory: Advisory,
     /// Folder the dashboard (`index.html` + `status.json`) is written to.
     #[serde(default = "default_site")]
     pub site_dir: PathBuf,
@@ -43,6 +45,34 @@ impl Default for Policy {
     fn default() -> Self {
         Self { fetch_clones: true, registry_cache_hours: 20, max_items_per_message: 12 }
     }
+}
+
+/// RustSec advisory scan of every `Cargo.lock`.
+#[derive(Debug, Deserialize)]
+pub struct Advisory {
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default = "default_adv_url")]
+    pub url: String,
+    /// Where the advisory-db checkout lives (created on first run).
+    #[serde(default = "default_adv_dir")]
+    pub dir: PathBuf,
+    /// Include "unmaintained"/"unsound"/"notice" advisories (they are never vulnerabilities, so they go to the maintainers).
+    #[serde(default = "yes")]
+    pub include_informational: bool,
+}
+
+impl Default for Advisory {
+    fn default() -> Self {
+        Self { enabled: true, url: default_adv_url(), dir: default_adv_dir(), include_informational: true }
+    }
+}
+
+fn default_adv_url() -> String {
+    "https://github.com/RustSec/advisory-db".into()
+}
+fn default_adv_dir() -> PathBuf {
+    PathBuf::from("advisory-db")
 }
 
 #[derive(Debug, Default, Deserialize)]

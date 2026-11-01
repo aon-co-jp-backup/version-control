@@ -1,6 +1,7 @@
 //! version-control: checks every repository under a root for outdated dependencies and stale clones,
 //! leaves routine bumps to the automatic maintainers (aruaru-llm / open-cuda side), and sends the message
 //! to paste into Claude by e-mail and LINE for everything they cannot handle.
+mod advisory;
 mod config;
 mod latest;
 mod notify;
@@ -83,9 +84,23 @@ fn main() -> Result<()> {
     let maintainer_alive = maintainers.iter().any(|m| m.alive);
     println!("maintainers: {}", maintainers.iter().map(|m| format!("{}={}", m.name, if m.alive { "up" } else { "DOWN" })).collect::<Vec<_>>().join(", "));
 
+    let advisories = if cfg.advisory.enabled {
+        if let Err(e) = advisory::refresh(&cfg.advisory.dir, &cfg.advisory.url) {
+            eprintln!("advisory-db: {e}");
+        }
+        let db = advisory::load(&cfg.advisory.dir);
+        println!("advisory-db: {} package(s) with advisories", db.len());
+        Some(db)
+    } else {
+        None
+    };
+
     let mut repos = Vec::new();
     for dir in list_repos(&cfg) {
-        let rs = scan_repo(&dir, &cfg, &mut registry, maintainer_alive, !args.no_fetch && cfg.policy.fetch_clones);
+        let mut rs = scan_repo(&dir, &cfg, &mut registry, maintainer_alive, !args.no_fetch && cfg.policy.fetch_clones);
+        if let Some(db) = &advisories {
+            add_advisories(&mut rs, &dir, db, &cfg);
+        }
         println!("{:<34} deps={:<4} open={:<3} to-claude={}", rs.name, rs.deps_checked, rs.items.len(), rs.items.iter().filter(|i| i.route == "claude").count());
         repos.push(rs);
     }
@@ -265,6 +280,27 @@ fn scan_repo(dir: &Path, cfg: &Config, reg: &mut latest::Registry, maintainer_al
     }
     let _ = cfg;
     rs
+}
+
+/// Vulnerabilities always go to Claude (a lock-file bump needs a build and tests); informational advisories go to the maintainers.
+fn add_advisories(rs: &mut RepoStatus, dir: &Path, db: &advisory::Db, cfg: &Config) {
+    for h in advisory::check(db, dir) {
+        let vuln = h.adv.informational.is_empty();
+        if !vuln && !cfg.advisory.include_informational {
+            continue;
+        }
+        let fix = if h.adv.patched_text.is_empty() { "修正版なし".to_string() } else { format!("修正: {}", h.adv.patched_text.join(" / ")) };
+        let latest = format!("{} {} — {}", h.adv.id, fix, h.adv.title.chars().take(80).collect::<String>());
+        rs.items.push(Item {
+            source: if vuln { "RustSec".into() } else { format!("RustSec/{}", h.adv.informational) },
+            name: h.krate,
+            req: h.version,
+            latest,
+            gap: if vuln { "vuln" } else { "advisory" }.into(),
+            route: if vuln { "claude" } else { "maintainer" }.into(),
+            file: h.lock,
+        });
+    }
 }
 
 fn write_site(dir: &Path, status: &Status) -> Result<()> {
