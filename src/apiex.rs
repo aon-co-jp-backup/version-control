@@ -412,6 +412,7 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
     let ledger = load_ledger(&cfg.apiex.ledger)?;
     let http = reqwest::blocking::Client::builder().user_agent("version-control (https://github.com/aon-co-jp/version-control)").timeout(Duration::from_secs(25)).build()?;
 
+    let t0 = std::time::Instant::now();
     // (a) research
     let mut results: Vec<(Exception, Research)> = Vec::new();
     for e in &ledger.exceptions {
@@ -421,6 +422,8 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
     let search_ok = results.iter().any(|(_, r)| r.search_ok);
     let llm_used = results.iter().any(|(_, r)| r.llm_note.is_some());
 
+    let t_research = t0.elapsed();
+    let t1 = std::time::Instant::now();
     // (b) route counts
     let mut snap = Snapshot { t: now, date: date_jst(now), ..Default::default() };
     let mut current: HashMap<String, BTreeSet<String>> = HashMap::new();
@@ -436,6 +439,9 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
         current.insert(name, rest);
     }
 
+    if verbose {
+        println!("  api timing: research {:.1}s (mostly waiting on search), route counting {:.1}s", t_research.as_secs_f32(), t1.elapsed().as_secs_f32());
+    }
     // (c) what changed
     let mut messages = Vec::new();
     let mut increases: Vec<(String, Vec<String>)> = Vec::new();

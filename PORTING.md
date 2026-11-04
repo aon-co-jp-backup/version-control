@@ -14,6 +14,8 @@
 
 - **API 例外の台帳と巡回(2026-11-04 追加)**: `exceptions.toml`(7 項目)/ `API-EXCEPTIONS.md`(日英独露)。同じタイマーの実行に同乗し、aruaru-search で兆候を検知・REST 風ルート数を記録・変化を open-easy-web のお知らせメール(`/open_easy_web.admin.v1.Notify/Send`)で通知。画面は「API 例外」欄と `api-exceptions.json`。VPS では `scripts/load-admin-token.sh`(`ExecStartPre`)が `env.api` を作る(値は表示しない)。単体: `version-control --api-only --dry-run`。aruaru-llm は小型モデルで、VPS が忙しいと 45 秒でタイムアウトする(記録して続行)。
 
+- **open-cpu / open-directx / open-cuda を使ったか(2026-11-04 実測)**: 使っていない。API 例外の巡回(手元 PC、release)の実測は、検索の待ち 94.4 秒(ネットワーク待ち・検索語間の待機)、ルート数え 初回 67.9 秒(ディスクが冷えている時)・2 回目 3.7 秒。重いのは I/O と待ちで、SIMD/GPU で速くなる計算(ハッシュ・類似検索など)は巡回に無い。実測で速くなる所が無いので、依存(`../open-cpu` など)は足していない。重い計算(大量文章の類似検索など)を足すときに、再度実測してから検討する。
+
 ### 通知の設定
 1. メール: `OPEN_EASYWEB_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM`(open-easy-web と同じ)。宛先は `config.toml` の `notify.email_to`。
 2. LINE: LINE Developers で Messaging API のチャネルを作り、**長期チャネルアクセストークン**を `F:\line-channel-token.txt`、自分の**ユーザー ID(U で始まる)**を `F:\line-user-id.txt` に保存(各 1 行)。そのチャネルの公式アカウントを友だち追加。`config.toml` の `notify.line_token_file` / `notify.line_to_file` にパスを書く。VPS へは `scp` でファイルを送り、パスを VPS の `config.toml` に書く(値は表示しない)。
@@ -67,6 +69,8 @@ version-control --test-notify で確認)。秘密(トークン・パスワード
 - Maintainer liveness: only `aruaru-llm` answers on the VPS (`http://127.0.0.1:4600/v1/accelerators`); open-cuda / open-cpu / open-directx have an empty `health_url`, i.e. count as not running.
 
 - **API exception ledger and patrol (added 2026-11-04)**: `exceptions.toml` (7 entries) / `API-EXCEPTIONS.md` (ja/en/de/ru). It rides on the same timer run: aruaru-search signals, REST-like route counts, and changes announced through open-easy-web's notice mail (`/open_easy_web.admin.v1.Notify/Send`). The dashboard gets an "API exceptions" section and `api-exceptions.json`. On the VPS `scripts/load-admin-token.sh` (`ExecStartPre`) writes `env.api` (the value is never printed). Stand-alone: `version-control --api-only --dry-run`. aruaru-llm is a small model and times out after 45 s when the VPS is busy (recorded, run continues).
+
+- **Were open-cpu / open-directx / open-cuda used? (measured 2026-11-04)**: No. Patrol timings (local PC, release): search wait 94.4 s (network wait and pauses between queries); route counting 67.9 s cold (cold disk cache) and 3.7 s warm. The cost is I/O and waiting; the patrol has no computation (hashing, similarity search) that SIMD/GPU would speed up, so no dependency (`../open-cpu` etc.) was added. Re-measure before considering them if heavy computation is added.
 
 ### Notification setup
 1. E-mail: `OPEN_EASYWEB_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` (same as open-easy-web); recipients in `notify.email_to`.
