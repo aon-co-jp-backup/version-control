@@ -23,7 +23,9 @@ summary{cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 table{width:100%;border-collapse:collapse;margin-top:8px;font-size:.88rem}
 td,th{text-align:left;padding:4px 6px;border-top:1px solid var(--line);vertical-align:top;word-break:break-word}
 .major,.diverged,.error{color:var(--bad)}.minor,.behind{color:var(--warn)}.patch{color:var(--mut)}
-a{color:var(--acc)}footer{margin-top:32px;color:var(--mut);font-size:.85rem}
+a{color:var(--acc)}.impossible{color:var(--mut)}.replaceable{color:var(--ok)}.partial{color:var(--warn)}.unknown{color:var(--bad)}
+svg.spark{width:100%;max-width:420px;height:64px;display:block;margin:8px 0}
+footer{margin-top:32px;color:var(--mut);font-size:.85rem}
 </style>
 </head>
 <body>
@@ -32,6 +34,7 @@ a{color:var(--acc)}footer{margin-top:32px;color:var(--mut);font-size:.85rem}
 <p class="sub">全リポジトリが最新のライブラリ・API・リポジトリを使っているかを見張り、自動保守(aruaru-llm / open-cuda / open-cpu / open-directx)で足りないときは、Claude に貼り付けるメッセージをメールと LINE で知らせます。</p>
 <div id="demo" class="banner" hidden>これはデモです。表示している数値・リポジトリ名はすべてサンプルで、実際の状況ではありません。実運用の画面は <a href="../">こちら</a>。</div>
 <div id="app">読み込み中…</div>
+<section id="api" hidden></section>
 <footer>
 <a href="https://github.com/aon-co-jp/version-control">GitHub: aon-co-jp/version-control</a> ・ ライセンス MIT<br>
 自動では <code>git pull</code> も依存の書き換えもしません。「Claude へ」の項目だけが通知の対象です。
@@ -69,6 +72,41 @@ a{color:var(--acc)}footer{margin-top:32px;color:var(--mut);font-size:.85rem}
     h+='<p class="sub">更新: '+new Date(s.generated_at*1000).toLocaleString('ja-JP')+'</p>';
     app.innerHTML=h;
   }).catch(function(e){app.textContent='状況を読み込めませんでした: '+e.message});
+})();
+
+(function(){
+  var box=document.getElementById('api');
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function url(u){return /^https?:\/\//.test(u)?esc(u):'#'}
+  var rl={impossible:'置き換え不可(規格が形を決める)',replaceable:'置き換え可能',partial:'一部は置き換え可能',unknown:'未判定'};
+  fetch('api-exceptions.json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){
+    var h='<h2>API 例外の台帳</h2><p class="sub">「REST 全廃・gRPC / Connect へ」の方針で、相手の規格が形を決める例外です。目標は例外ゼロではなく、例外ごとに根拠・置き換え可否・次の手・確認日を持ち、置き換えられる状況が出たら毎日の巡回で知らせることです。ゼロにできないもの(ACME・第三者の Webhook・静的ファイル)は正直に「不可」と書いています。</p>';
+    h+='<div class="row">'+
+      '<div class="stat"><b>'+d.exceptions.length+'</b><span>例外の項目</span></div>'+
+      '<div class="stat"><b class="replaceable">'+(d.counts.replaceable||0)+'</b><span>置き換え可能</span></div>'+
+      '<div class="stat"><b class="partial">'+(d.counts.partial||0)+'</b><span>一部可能</span></div>'+
+      '<div class="stat"><b class="impossible">'+(d.counts.impossible||0)+'</b><span>置き換え不可</span></div>'+
+      '<div class="stat"><b>'+(d.routes.total_rest_like)+'</b><span>残る REST 風ルート(目安)</span></div></div>';
+    h+='<p class="sub">確認日: '+esc(d.checked)+' ・ 巡回の検索: '+(d.search.ok?'aruaru-search 稼働':esc(d.search.note))+' ・ '+esc(d.llm.note)+'</p>';
+    var hist=d.history||[];
+    if(hist.length>1){
+      var mx=Math.max.apply(null,hist.map(function(x){return x.rest_like}))||1,w=420,hh=64,pts=hist.map(function(x,i){return (i*(w-8)/(hist.length-1)+4).toFixed(1)+','+(hh-6-(x.rest_like/mx)*(hh-12)).toFixed(1)}).join(' ');
+      h+='<h2>REST 風ルートの推移</h2><svg class="spark" viewBox="0 0 '+w+' '+hh+'" role="img" aria-label="REST風ルート数の推移"><polyline fill="none" stroke="var(--acc)" stroke-width="2" points="'+pts+'"/></svg><p class="sub">'+esc(hist[0].date)+' → '+esc(hist[hist.length-1].date)+':'+hist[0].rest_like+' → '+hist[hist.length-1].rest_like+' 本。増えたら(方針違反の新規追加)メールで知らせます。</p>';
+    } else if(hist.length===1){ h+='<p class="sub">REST 風ルートの推移は、2 回目以降の巡回から表示します(現在 '+hist[0].rest_like+' 本)。</p>'; }
+    h+='<h2>例外ごとの状況</h2>';
+    d.exceptions.forEach(function(e){
+      h+='<details><summary><span><b>'+esc(e.name)+'</b></span><span class="pill '+esc(e.replaceability)+'">'+esc(rl[e.replaceability]||e.replaceability)+'</span></summary>'+
+        '<p><b>根拠の規格:</b> '+esc(e.standard)+' '+e.standard_urls.map(function(u){return '<a href="'+url(u)+'" rel="noopener noreferrer">'+esc(u)+'</a>'}).join(' ')+'</p>'+
+        '<p><b>置き換え案:</b> '+esc(e.replacement)+'</p><p><b>次の手:</b> '+esc(e.next_step)+'</p>';
+      if(e.uses.length){h+='<table><tr><th>リポジトリ</th><th>使っている場所(コードで確認済み)</th></tr>'+e.uses.map(function(u){return '<tr><td>'+esc(u.repo)+'</td><td>'+esc(u.where)+'</td></tr>'}).join('')+'</table>'}
+      if(e.sources.length){h+='<p class="sub">最新の調査の出典(aruaru-search): '+e.sources.map(function(x){return '<a href="'+url(x.link)+'" rel="noopener noreferrer">'+esc(x.title||x.link)+'</a>'}).join(' / ')+'</p>'}
+      h+='<p class="sub">巡回: '+esc(e.patrol)+(e.signals?' ・ 新しい兆候 '+e.signals+' 件':'')+'</p></details>';
+    });
+    h+='<h2>リポジトリ別の REST 風ルート(目安)</h2><table><tr><th>リポジトリ</th><th>ルート</th><th>REST 風</th><th>/api/・/admin/</th></tr>'+
+      d.routes.repos.slice().sort(function(a,b){return b.rest_like-a.rest_like}).map(function(r){return '<tr><td>'+esc(r.name)+'</td><td>'+r.routes+'</td><td>'+r.rest_like+'</td><td>'+r.api_admin+'</td></tr>'}).join('')+'</table>'+
+      '<p class="sub">'+esc(d.routes.method)+'。静的な目安で、実行時に作るルートは数えられません。</p>';
+    box.innerHTML=h;box.hidden=false;
+  }).catch(function(){/* old status without the ledger: leave the section hidden */});
 })();
 </script>
 </body>

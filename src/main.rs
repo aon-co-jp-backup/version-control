@@ -2,6 +2,7 @@
 //! leaves routine bumps to the automatic maintainers (aruaru-llm / open-cuda side), and sends the message
 //! to paste into Claude by e-mail and LINE for everything they cannot handle.
 mod advisory;
+mod apiex;
 mod config;
 mod latest;
 mod notify;
@@ -25,6 +26,8 @@ struct State {
     /// repository -> fingerprint of the last announced message
     #[serde(default)]
     notified: HashMap<String, String>,
+    #[serde(default)]
+    apiex: apiex::State,
 }
 
 struct Args {
@@ -34,10 +37,12 @@ struct Args {
     test_notify: bool,
     no_fetch: bool,
     demo: bool,
+    no_api: bool,
+    api_only: bool,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false };
+    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -47,8 +52,12 @@ fn parse_args() -> Args {
             "--test-notify" => a.test_notify = true,
             "--no-fetch" => a.no_fetch = true,
             "--demo" => a.demo = true,
+            "--no-api" => a.no_api = true,
+            "--api-only" => a.api_only = true,
             "-h" | "--help" => {
-                println!("version-control [--config FILE] [--dry-run] [--force] [--no-fetch] [--test-notify] [--demo]\n  --dry-run      scan and write the dashboard, send nothing\n  --force        announce even if the message was already sent\n  --test-notify  send a short test message by e-mail and LINE\n  --demo         write the sample status.json for the public demo (no scan)");
+                println!("version-control [--config FILE] [--dry-run] [--force] [--no-fetch] [--test-notify] [--demo]\n  --dry-run      scan and write the dashboard, send nothing\n  --force        announce even if the message was already sent\n  --test-notify  send a short test message by e-mail and LINE\n  --no-api       skip the API exception patrol
+  --api-only     run only the API exception patrol (ledger, route counts, notice)
+  --demo         write the sample status.json for the public demo (no scan)");
                 std::process::exit(0);
             }
             other => eprintln!("ignoring unknown argument {other}"),
@@ -78,6 +87,11 @@ fn main() -> Result<()> {
 
     let state_path = PathBuf::from("state.json");
     let mut state: State = std::fs::read_to_string(&state_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    if args.api_only {
+        run_apiex(&cfg, &mut state, &args);
+        std::fs::write(&state_path, serde_json::to_string_pretty(&state)?).context("cannot write state.json")?;
+        return Ok(());
+    }
     let mut registry = latest::Registry::new(std::mem::take(&mut state.cache), cfg.policy.registry_cache_hours)?;
 
     let maintainers = check_maintainers(&cfg);
@@ -159,8 +173,60 @@ fn main() -> Result<()> {
         }
     }
 
+    if !args.no_api {
+        run_apiex(&cfg, &mut state, &args);
+    }
+
     std::fs::write(&state_path, serde_json::to_string_pretty(&state)?).context("cannot write state.json")?;
     Ok(())
+}
+
+/// API exception ledger and patrol. Never fails the run: a problem here is printed and the dependency scan result stands.
+fn run_apiex(cfg: &Config, state: &mut State, args: &Args) {
+    if !cfg.apiex.enabled {
+        return;
+    }
+    // --dry-run works on a scratch copy so that nothing (baseline, seen links, history) is recorded.
+    let mut work = state.apiex.clone();
+    let out = match apiex::patrol(cfg, &mut work, now(), true) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("api exceptions: {e:#}");
+            return;
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&cfg.site_dir).and_then(|_| std::fs::write(cfg.site_dir.join("api-exceptions.json"), out.public.to_string())) {
+        eprintln!("api exceptions: cannot write api-exceptions.json: {e}");
+    }
+    let http = reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build().ok();
+    for (key, kind, subject, body) in &out.messages {
+        let fingerprint = report::fingerprint(&format!("{subject}
+{body}"));
+        if !args.force && work.notified.get(key) == Some(&fingerprint) {
+            continue;
+        }
+        if args.dry_run {
+            println!("--dry-run: notice [{kind}] {subject}
+{body}
+");
+            continue;
+        }
+        let Some(h) = http.as_ref() else { continue };
+        match apiex::send_notice(h, &cfg.apiex, kind, subject, body) {
+            Ok(()) => {
+                println!("api notice sent: {subject}");
+                work.notified.insert(key.clone(), fingerprint);
+                if key == "rest-increase" {
+                    work.baseline.extend(out.held.clone());
+                }
+            }
+            Err(e) => eprintln!("api notice NOT sent ({subject}): {e:#}"),
+        }
+    }
+    println!("api exceptions: {} entries, REST-like routes now {}", out.public["exceptions"].as_array().map_or(0, |a| a.len()), out.public["routes"]["total_rest_like"]);
+    if !args.dry_run {
+        state.apiex = work;
+    }
 }
 
 fn check_maintainers(cfg: &Config) -> Vec<MaintainerStatus> {
@@ -174,7 +240,7 @@ fn check_maintainers(cfg: &Config) -> Vec<MaintainerStatus> {
         .collect()
 }
 
-fn list_repos(cfg: &Config) -> Vec<PathBuf> {
+pub fn list_repos(cfg: &Config) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(&cfg.root)
         .into_iter()
         .flatten()
@@ -326,6 +392,11 @@ fn write_demo(dir: &Path) -> Result<()> {
         hidden_private: 2,
     };
     write_site(dir, &status)?;
+    if let Ok(cfg) = Config::load(&PathBuf::from("config.toml")).or_else(|_| Config::load(&PathBuf::from("config.example.toml"))) {
+        if let Ok(v) = apiex::demo_json(&cfg, now()) {
+            std::fs::write(dir.join("api-exceptions.json"), v.to_string())?;
+        }
+    }
     println!("demo status written to {}", dir.display());
     Ok(())
 }

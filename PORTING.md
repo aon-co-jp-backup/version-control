@@ -12,6 +12,8 @@
 - **未了: LINE push**(トークン・ユーザー ID 未設定のため `LINE: FAILED (notify.line_token_file is not set)`。メールが届けば状態は保存されるので再送の山にはならない)。
 - 自動保守側の稼働判定: `aruaru-llm` だけ VPS で応答(`http://127.0.0.1:4600/v1/accelerators`)。open-cuda / open-cpu / open-directx は `health_url` が空 = 未稼働扱い。
 
+- **API 例外の台帳と巡回(2026-11-04 追加)**: `exceptions.toml`(7 項目)/ `API-EXCEPTIONS.md`(日英独露)。同じタイマーの実行に同乗し、aruaru-search で兆候を検知・REST 風ルート数を記録・変化を open-easy-web のお知らせメール(`/open_easy_web.admin.v1.Notify/Send`)で通知。画面は「API 例外」欄と `api-exceptions.json`。VPS では `scripts/load-admin-token.sh`(`ExecStartPre`)が `env.api` を作る(値は表示しない)。単体: `version-control --api-only --dry-run`。aruaru-llm は小型モデルで、VPS が忙しいと 45 秒でタイムアウトする(記録して続行)。
+
 ### 通知の設定
 1. メール: `OPEN_EASYWEB_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM`(open-easy-web と同じ)。宛先は `config.toml` の `notify.email_to`。
 2. LINE: LINE Developers で Messaging API のチャネルを作り、**長期チャネルアクセストークン**を `F:\line-channel-token.txt`、自分の**ユーザー ID(U で始まる)**を `F:\line-user-id.txt` に保存(各 1 行)。そのチャネルの公式アカウントを友だち追加。`config.toml` の `notify.line_token_file` / `notify.line_to_file` にパスを書く。VPS へは `scp` でファイルを送り、パスを VPS の `config.toml` に書く(値は表示しない)。
@@ -63,6 +65,8 @@ version-control --test-notify で確認)。秘密(トークン・パスワード
 - **E-mail works**: the VPS timer run logged `e-mail: sent` (2026-10-28 12:27, to norukia.jp@gmail.com). `env` is a copy of open-easy-web's SMTP settings (git-ignored).
 - **Open: LINE push** (no token / user id yet: `LINE: FAILED (notify.line_token_file is not set)`; state is saved once the e-mail goes out, so nothing is re-sent in a loop).
 - Maintainer liveness: only `aruaru-llm` answers on the VPS (`http://127.0.0.1:4600/v1/accelerators`); open-cuda / open-cpu / open-directx have an empty `health_url`, i.e. count as not running.
+
+- **API exception ledger and patrol (added 2026-11-04)**: `exceptions.toml` (7 entries) / `API-EXCEPTIONS.md` (ja/en/de/ru). It rides on the same timer run: aruaru-search signals, REST-like route counts, and changes announced through open-easy-web's notice mail (`/open_easy_web.admin.v1.Notify/Send`). The dashboard gets an "API exceptions" section and `api-exceptions.json`. On the VPS `scripts/load-admin-token.sh` (`ExecStartPre`) writes `env.api` (the value is never printed). Stand-alone: `version-control --api-only --dry-run`. aruaru-llm is a small model and times out after 45 s when the VPS is busy (recorded, run continues).
 
 ### Notification setup
 1. E-mail: `OPEN_EASYWEB_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` (same as open-easy-web); recipients in `notify.email_to`.

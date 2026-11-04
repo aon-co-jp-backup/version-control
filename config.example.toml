@@ -38,3 +38,16 @@ email_to = ["you@example.com"]
 # LINE Messaging API push (LINE Notify ended on 2025-03-31).
 line_token_file = "F:/line-channel-token.txt"   # long-lived channel access token
 line_to_file = "F:/line-user-id.txt"            # your LINE user id (starts with U)
+
+[apiex]
+# API exception ledger and patrol (exceptions.toml, API-EXCEPTIONS.md). Secrets: none here.
+# The admin token for open-easy-web's notice endpoint comes from the environment variable named token_env
+# (on the VPS scripts/load-admin-token.sh writes env.api; never print it).
+enabled = true
+ledger = "exceptions.toml"
+search_url = "http://127.0.0.1:4610"   # aruaru-search
+llm_url = "http://127.0.0.1:4600"      # aruaru-llm (small model: a reference note only)
+llm_timeout_secs = 45
+notify_url = "https://easy-web.tokyo"
+token_env = "OPEN_EASYWEB_DIST_SYNC_ADMIN_TOKEN"
+skip_paths = ["runo/repository"]       # repo/relative/dir the route counter must not enter (nested mirror)

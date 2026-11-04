@@ -19,6 +19,8 @@ pub struct Config {
     pub notify: Notify,
     #[serde(default)]
     pub advisory: Advisory,
+    #[serde(default)]
+    pub apiex: ApiEx,
     /// Folder the dashboard (`index.html` + `status.json`) is written to.
     #[serde(default = "default_site")]
     pub site_dir: PathBuf,
@@ -81,6 +83,71 @@ pub struct Notify {
     pub email_to: Vec<String>,
     pub line_token_file: Option<PathBuf>,
     pub line_to_file: Option<PathBuf>,
+}
+
+/// API exception ledger and patrol (see `apiex.rs`). No secret here: the admin token is read from the environment variable named by `token_env`.
+#[derive(Debug, Deserialize, Clone)]
+pub struct ApiEx {
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default = "default_ledger")]
+    pub ledger: PathBuf,
+    #[serde(default = "default_search_url")]
+    pub search_url: String,
+    #[serde(default = "default_llm_url")]
+    pub llm_url: String,
+    #[serde(default = "default_llm_timeout")]
+    pub llm_timeout_secs: u64,
+    #[serde(default = "default_search_n")]
+    pub search_n: usize,
+    #[serde(default = "default_notify_url")]
+    pub notify_url: String,
+    #[serde(default = "default_token_env")]
+    pub token_env: String,
+    /// "repo/relative/dir" entries the route counter must not enter (e.g. a nested mirror of other repositories).
+    #[serde(default = "default_skip_paths")]
+    pub skip_paths: Vec<String>,
+}
+
+impl Default for ApiEx {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ledger: default_ledger(),
+            search_url: default_search_url(),
+            llm_url: default_llm_url(),
+            llm_timeout_secs: default_llm_timeout(),
+            search_n: default_search_n(),
+            notify_url: default_notify_url(),
+            token_env: default_token_env(),
+            skip_paths: default_skip_paths(),
+        }
+    }
+}
+
+fn default_ledger() -> PathBuf {
+    PathBuf::from("exceptions.toml")
+}
+fn default_search_url() -> String {
+    "http://127.0.0.1:4610".into()
+}
+fn default_llm_url() -> String {
+    "http://127.0.0.1:4600".into()
+}
+fn default_llm_timeout() -> u64 {
+    45
+}
+fn default_search_n() -> usize {
+    6
+}
+fn default_notify_url() -> String {
+    "https://easy-web.tokyo".into()
+}
+fn default_token_env() -> String {
+    "OPEN_EASYWEB_DIST_SYNC_ADMIN_TOKEN".into()
+}
+fn default_skip_paths() -> Vec<String> {
+    vec!["runo/repository".into()]
 }
 
 fn yes() -> bool {

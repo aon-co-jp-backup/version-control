@@ -1,0 +1,204 @@
+# API 例外の台帳(機械可読)。人が読む版は API-EXCEPTIONS.md(日・英・独・露)。
+# 方針の正本: F:\runo\API-POLICY.md(2026-11-04「REST全廃・gRPC/Connectへ」)。
+#
+# 正直な前提: 完全にゼロにできないものがある(impossible)。相手の規格が形を決めるからである。
+# 目標は「例外ゼロ」ではなく、例外ごとに 根拠の規格・置き換え可否・次の手・確認日 を持ち、
+# 置き換えられる状況(新しい標準・実装・対応状況)が出たら毎日の巡回で検知して知らせること。
+#
+# replaceability: impossible | replaceable | partial | unknown
+# [[exception.use]] は「そのリポジトリのコードを実際に grep で確認した場所」。推測は書かない。
+# search_queries: 巡回(aruaru-search)の検索語。signal_terms: 結果の題名・抜粋にこれが含まれる「新しい」ものを置き換えの兆候として知らせる。
+
+checked = "2026-11-04"
+
+[[exception]]
+id = "acme-http01"
+name = "ACME HTTP-01 チャレンジ応答"
+name_en = "ACME HTTP-01 challenge responder"
+standard = "RFC 8555 §8.3 (HTTP-01)"
+standard_urls = ["https://www.rfc-editor.org/rfc/rfc8555#section-8.3"]
+replaceability = "impossible"
+replacement = "CA(Let's Encrypt 等)が 80 番ポートへ素の HTTP GET /.well-known/acme-challenge/<token> で来る。クライアントは CA 側なので、こちらでは形を変えられない。DNS-01 / TLS-ALPN-01 なら HTTP のファイル応答は不要になるが、それも ACME(HTTP+JSON)の一部。"
+next_step = "最小の応答器のまま保つ(新規ルートを足さない)。ACME を gRPC/Connect で話す仕様・CA が出たら置き換えを検討する。"
+search_queries = ["ACME protocol gRPC OR Connect OR JSON-RPC new IETF draft", "IETF ACME working group new challenge type draft 2026"]
+signal_terms = ["grpc", "connect-rpc", "json-rpc", "acme over"]
+[[exception.use]]
+repo = "RPoem"
+where = "crates/open-runo-router/src/acme.rs(GET /.well-known/acme-challenge/:token の応答器)"
+[[exception.use]]
+repo = "open-web-server"
+where = "crates/open-web-server-gateway/src/acme.rs(同上の応答器)"
+[[exception.use]]
+repo = "open-easy-web"
+where = "deploy/systemd/easyweb-tls-renew.service(certbot renew を実行)"
+
+[[exception]]
+id = "acme-client"
+name = "ACME クライアント(CA との通信)"
+name_en = "ACME client (talking to the CA)"
+standard = "RFC 8555 (ACME)"
+standard_urls = ["https://www.rfc-editor.org/rfc/rfc8555"]
+replaceability = "impossible"
+replacement = "ACME は HTTP+JSON(JWS)を規格として定めており、CA(サーバー)側の形に従うしかない。"
+next_step = "変更なし。自前実装(RPoem の acme feature)と certbot が併存している点だけ、将来一本化を検討する。"
+search_queries = ["ACME RFC 8555 successor draft IETF acme"]
+signal_terms = ["grpc", "connect-rpc", "json-rpc", "acme v3", "acme over"]
+[[exception.use]]
+repo = "RPoem"
+where = "crates/open-runo-router/src/acme.rs(AcmeClient: directory / nonce / JWS / order、acme feature)"
+[[exception.use]]
+repo = "open-web-server"
+where = "crates/open-web-server-gateway/src/acme.rs(モジュール先頭の説明に client モジュール(acme feature)あり)"
+[[exception.use]]
+repo = "open-easy-web"
+where = "deploy/systemd/easyweb-tls-renew.service(certbot)"
+
+[[exception]]
+id = "oauth-oidc-callback"
+name = "OAuth / OIDC のコールバック(リダイレクト先)"
+name_en = "OAuth / OIDC redirect (callback) endpoint"
+standard = "RFC 6749 §3.1.2 / OpenID Connect Core 1.0 §3.1.2.5"
+standard_urls = ["https://www.rfc-editor.org/rfc/rfc6749#section-3.1.2", "https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest"]
+replaceability = "partial"
+replacement = "IdP がブラウザを開くのは GET のリダイレクト URL(規格)。そこは静的なページにし、ページが code を Connect の POST(例: AuthService/ExchangeCode)で送る形に減らせる。IdP に登録するリダイレクト URL 自体は残る。"
+next_step = "コールバックを静的ページ + Connect POST に分ける。RS-Sync の /api/auth/google/callback を最初の対象にする。"
+search_queries = ["OAuth 2.0 redirect callback without server endpoint Connect POST", "OAuth 2.1 draft IETF oauth-v2-1 redirect"]
+signal_terms = ["oauth 2.1", "form_post", "callback-less", "grpc", "connect-rpc"]
+[[exception.use]]
+repo = "RS-Sync"
+where = "src/google_calendar.rs(redirect_uri は http://127.0.0.1:8095/api/auth/google/callback、46・60・301 行付近)"
+[[exception.use]]
+repo = "RPoem"
+where = "crates/open-runo-security/src/oidc.rs(OIDC のトークン検証のみ。コールバックのルートは grep で見つからず)"
+[[exception.use]]
+repo = "open-web-server"
+where = "crates/open-web-server-gateway/src/oauth_provider.rs(GitHub OAuth のプロバイダ抽象。コールバックのルートは grep で見つからず)"
+
+[[exception]]
+id = "webhook-incoming"
+name = "第三者からの Webhook 受信"
+name_en = "Incoming third-party webhooks"
+standard = "LINE Messaging API webhook / GitHub webhooks(送信元が形を決める HTTP POST + 署名ヘッダ)"
+standard_urls = ["https://developers.line.biz/en/reference/messaging-api/#webhooks", "https://docs.github.com/en/webhooks"]
+replaceability = "impossible"
+replacement = "送ってくるのは GitHub / LINE などで、HTTP POST の形も署名の方式も相手が決める。受け口は残る。受け取った後の内部処理は Connect/gRPC にできる。"
+next_step = "受け口は署名検証つきの最小ハンドラのまま。新規の Webhook 受け口を増やさない。"
+search_queries = ["webhook alternative gRPC OR Connect push notification GitHub LINE 2026", "GitHub webhooks new delivery method"]
+signal_terms = ["grpc", "connect-rpc", "websocket delivery", "new delivery"]
+[[exception.use]]
+repo = "open-english"
+where = "server/src/line_bot.rs:521(POST /v1/line/webhook、署名検証あり)"
+[[exception.use]]
+repo = "e-gov"
+where = "src/main.rs:421(POST /webhook/line → line_webhook.rs)"
+[[exception.use]]
+repo = "backup-to-discord-by-github"
+where = "crates/bdg-server/src/lib.rs(GitHub Webhook 受信、open_runo_router::webhook を使用)"
+
+[[exception]]
+id = "healthcheck"
+name = "ヘルスチェック"
+name_en = "Health checks"
+standard = "gRPC Health Checking Protocol (grpc.health.v1)"
+standard_urls = ["https://github.com/grpc/grpc/blob/master/doc/health-checking.md"]
+replaceability = "replaceable"
+replacement = "サービス間は grpc.health.v1.Health/Check に置き換え可能(RPoem の open-runo-gateway は実装済み)。ブラウザ・curl 用は Connect の POST /grpc.health.v1.Health/Check(JSON)にできる。素の GET /healthz を呼ぶ外部の監視・systemd・version-control の稼働判定は、呼び出し側を移すまで残る。"
+next_step = "呼び出し側(version-control の maintainers.health_url、監視)を Connect POST へ移したうえで、各 /healthz を消す。新規の /healthz は足さない。"
+search_queries = ["grpc.health.v1 Connect protocol health check JSON POST", "connectrpc grpc health check HTTP probe kubernetes"]
+signal_terms = ["connect", "connectrpc", "grpc-health", "grpc_health_probe"]
+[[exception.use]]
+repo = "RPoem"
+where = "crates/open-runo-gateway/src/lib.rs(grpc.health.v1.Health/Check の実装)。apps/desktop-wasm/src/api.rs:437 は GET /health を呼ぶ"
+[[exception.use]]
+repo = "RS-Guard"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "RS-Sync"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "aon.tokyo"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "aruaru-IME"
+where = "crates/aruaru-ime-daemon/src/main.rs:737(GET /health)"
+[[exception.use]]
+repo = "aruaru-llm"
+where = "src/api_docs.rs(\"/healthz\")"
+[[exception.use]]
+repo = "aruaru-search"
+where = "src/main.rs:179(/v1/health)"
+[[exception.use]]
+repo = "aruaru-tokyo"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "e-gov"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "fbi.tokyo"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "icpo.tokyo"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "nasa.tokyo"
+where = "src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "open-backup"
+where = "crates/open-backup-cli/src/serve.rs:279(GET /health)"
+[[exception.use]]
+repo = "open-cg-cad"
+where = "server/src/api_docs.rs(\"/healthz\")"
+[[exception.use]]
+repo = "open-easy-web"
+where = "server/src/main.rs(/api/health、/ime/api/health → /health)"
+[[exception.use]]
+repo = "open-english"
+where = "server/src/api_docs.rs:242(/health)"
+[[exception.use]]
+repo = "open-fudousan"
+where = "crates/fudousan-api/src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "open-raid-z"
+where = "web/src/main.rs(\"/healthz\")"
+[[exception.use]]
+repo = "backup-to-discord-by-github"
+where = "crates/bdg-server/src/lib.rs(\"/healthz\")"
+
+[[exception]]
+id = "otlp"
+name = "OTLP(テレメトリの送信)"
+name_en = "OTLP (telemetry export)"
+standard = "OpenTelemetry Protocol (OTLP/gRPC 4317, OTLP/HTTP 4318)"
+standard_urls = ["https://opentelemetry.io/docs/specs/otlp/"]
+replaceability = "replaceable"
+replacement = "OTLP には gRPC 版がある。現在は opentelemetry-otlp を http-proto 特性で使っているため、grpc-tonic 特性へ切り替えれば HTTP の送信は不要になる(受け側コレクターは 4317)。"
+next_step = "RPoem と open-web-server の opentelemetry-otlp を grpc-tonic に切り替えて(tonic の依存増とビルド時間を確認)、HTTP/4318 を使わない。"
+search_queries = ["opentelemetry-otlp grpc-tonic rust feature", "OTLP gRPC vs HTTP exporter recommendation"]
+signal_terms = ["grpc-tonic", "otlp/grpc", "4317", "default grpc"]
+[[exception.use]]
+repo = "RPoem"
+where = "Cargo.toml:72(opentelemetry-otlp 0.33、features = http-proto, reqwest-client, trace)。crates/open-runo-core/src/lib.rs:100 に OTLP HTTP endpoint の設定"
+[[exception.use]]
+repo = "open-web-server"
+where = "Cargo.toml:73(opentelemetry-otlp 0.32、features = http-proto, reqwest-blocking-client)"
+
+[[exception]]
+id = "static-files"
+name = "静的ファイル配信"
+name_en = "Static file serving"
+standard = "RFC 9110 (HTTP Semantics) — ブラウザが GET で取得する"
+standard_urls = ["https://www.rfc-editor.org/rfc/rfc9110"]
+replaceability = "impossible"
+replacement = "HTML/JS/CSS/画像は API ではなく、ブラウザが GET で取りに来る。API に置き換える対象ではない。"
+next_step = "変更なし。静的配信のついでに JSON を返す REST 風ルートを足さない(足すと巡回の「REST風」件数に出る)。"
+search_queries = ["static file serving gRPC-web Connect alternative to HTTP GET"]
+signal_terms = ["grpc-web static", "connect static"]
+[[exception.use]]
+repo = "open-easy-web"
+where = "server/src/main.rs:440, 453(serve_static)"
+[[exception.use]]
+repo = "open-web-server"
+where = "crates/open-web-server-gateway/src/handlers/web_vhost.rs:62, 112(serve_static_vhost)"
+[[exception.use]]
+repo = "runo.tokyo"
+where = "src/lib.rs:577, 589(serve_static_file)"
