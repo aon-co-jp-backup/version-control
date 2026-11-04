@@ -28,7 +28,7 @@ pub struct Dep {
     pub file: String,
 }
 
-const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "vendor", "dist", "build", ".venv", "pkg"];
+pub const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "vendor", "dist", "build", ".venv", "pkg"];
 
 pub fn find_manifests(repo: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();

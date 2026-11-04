@@ -120,9 +120,16 @@ fn main() -> Result<()> {
 
     let mut repos = Vec::new();
     for dir in list_repos(&cfg) {
-        let mut rs = scan_repo(&dir, &cfg, &mut registry, maintainer_alive, !args.no_fetch && cfg.policy.fetch_clones);
+        // Read-only: fetch, then look at the upstream branch's manifests / lock files (not the possibly stale working tree).
+        let fetched = !args.no_fetch && cfg.policy.fetch_clones && git(&dir, &["fetch", "--quiet"], Duration::from_secs(60)).is_some();
+        let snap = OriginSnap::new(&dir);
+        if snap.path.is_none() || (!args.no_fetch && cfg.policy.fetch_clones && !fetched) {
+            println!("  note: {} reads the clone as it is (no upstream, or fetch failed)", dir.file_name().unwrap_or_default().to_string_lossy());
+        }
+        let scan_dir = snap.dir(&dir);
+        let mut rs = scan_repo(&dir, &scan_dir, &cfg, &mut registry, maintainer_alive);
         if let Some(db) = &advisories {
-            add_advisories(&mut rs, &dir, db, &cfg);
+            add_advisories(&mut rs, &scan_dir, db, &cfg);
         }
         println!("{:<34} deps={:<4} open={:<3} to-claude={}", rs.name, rs.deps_checked, rs.items.len(), rs.items.iter().filter(|i| i.route == "claude").count());
         repos.push(rs);
@@ -264,6 +271,50 @@ pub fn list_repos(cfg: &Config) -> Vec<PathBuf> {
     v
 }
 
+/// The manifests and lock files of the upstream branch (`@{u}`), written to a temp folder with `git ls-tree` + `git show`
+/// (read-only: nothing is pulled or merged). Removed on drop. `path` is None when there is no upstream.
+struct OriginSnap {
+    path: Option<PathBuf>,
+}
+
+impl OriginSnap {
+    fn new(dir: &Path) -> Self {
+        Self { path: Self::build(dir) }
+    }
+
+    fn dir(&self, fallback: &Path) -> PathBuf {
+        self.path.clone().unwrap_or_else(|| fallback.to_path_buf())
+    }
+
+    fn build(dir: &Path) -> Option<PathBuf> {
+        let list = git(dir, &["ls-tree", "-r", "--name-only", "-z", "@{u}"], Duration::from_secs(30))?;
+        let root = std::env::temp_dir().join(format!("vc-origin-{}-{}", std::process::id(), dir.file_name()?.to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&root);
+        for rel in list.split(' ').filter(|r| !r.is_empty()) {
+            let comps: Vec<&str> = rel.split('/').collect();
+            let name = comps.last().copied().unwrap_or("");
+            if !["Cargo.toml", "Cargo.lock", "package.json", "composer.json"].contains(&name) || comps.len() > 6 || comps[..comps.len() - 1].iter().any(|c| scan::SKIP_DIRS.contains(c)) {
+                continue;
+            }
+            let Some(text) = git(dir, &["show", &format!("@{{u}}:{rel}")], Duration::from_secs(20)) else { continue };
+            let dest = root.join(rel);
+            if let Some(parent) = dest.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(dest, text);
+        }
+        root.exists().then_some(root)
+    }
+}
+
+impl Drop for OriginSnap {
+    fn drop(&mut self) {
+        if let Some(p) = &self.path {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+}
+
 /// Runs git with a hard time limit so one unreachable remote cannot stall the whole scan.
 fn git(dir: &Path, args: &[&str], limit: Duration) -> Option<String> {
     let mut child = Command::new("git")
@@ -276,34 +327,34 @@ fn git(dir: &Path, args: &[&str], limit: Duration) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // Drain stdout on a thread: a child that fills the pipe (a big Cargo.lock) would otherwise never exit.
+    let mut pipe = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut out = String::new();
+        std::io::Read::read_to_string(&mut pipe, &mut out).ok().map(|_| out)
+    });
     let start = Instant::now();
     loop {
         match child.try_wait().ok()? {
             Some(st) => {
-                if !st.success() {
-                    return None;
-                }
-                let mut out = String::new();
-                std::io::Read::read_to_string(child.stdout.as_mut()?, &mut out).ok()?;
-                return Some(out);
+                let out = reader.join().ok()??;
+                return if st.success() { Some(out) } else { None };
             }
             None if start.elapsed() > limit => {
                 let _ = child.kill();
+                let _ = child.wait();
                 return None;
             }
-            None => std::thread::sleep(Duration::from_millis(50)),
+            None => std::thread::sleep(Duration::from_millis(20)),
         }
     }
 }
 
-fn scan_repo(dir: &Path, cfg: &Config, reg: &mut latest::Registry, maintainer_alive: bool, fetch: bool) -> RepoStatus {
+fn scan_repo(dir: &Path, scan_dir: &Path, cfg: &Config, reg: &mut latest::Registry, maintainer_alive: bool) -> RepoStatus {
     let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
     let mut rs = RepoStatus { name, ..Default::default() };
 
     // Stale or diverged clone. Never pulled automatically.
-    if fetch {
-        git(dir, &["fetch", "--quiet"], Duration::from_secs(60));
-    }
     if let Some(out) = git(dir, &["rev-list", "--left-right", "--count", "HEAD...@{u}"], Duration::from_secs(20)) {
         let mut it = out.split_whitespace().filter_map(|x| x.parse::<u32>().ok());
         let (ahead, behind) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
@@ -323,11 +374,11 @@ fn scan_repo(dir: &Path, cfg: &Config, reg: &mut latest::Registry, maintainer_al
 
     // Dependencies.
     let mut seen: HashMap<(String, String, String), ()> = HashMap::new();
-    for m in scan::find_manifests(dir) {
-        let deps = match scan::parse_manifest(dir, &m) {
+    for m in scan::find_manifests(scan_dir) {
+        let deps = match scan::parse_manifest(scan_dir, &m) {
             Ok(d) => d,
             Err(e) => {
-                rs.items.push(Item { source: "manifest".into(), name: "parse".into(), req: String::new(), latest: format!("読めません: {e}").chars().take(120).collect(), gap: "error".into(), route: "claude".into(), file: m.strip_prefix(dir).unwrap_or(&m).to_string_lossy().replace('\\', "/") });
+                rs.items.push(Item { source: "manifest".into(), name: "parse".into(), req: String::new(), latest: format!("読めません: {e}").chars().take(120).collect(), gap: "error".into(), route: "claude".into(), file: m.strip_prefix(scan_dir).unwrap_or(&m).to_string_lossy().replace('\\', "/") });
                 continue;
             }
         };
