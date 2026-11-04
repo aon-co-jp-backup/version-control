@@ -314,7 +314,7 @@ fn search(http: &reqwest::blocking::Client, cfg: &ApiEx, q: &str) -> Result<Vec<
 fn llm_note(http: &reqwest::blocking::Client, cfg: &ApiEx, e: &Exception, signals: &[Hit]) -> Result<String> {
     let titles = signals.iter().map(|s| s.title.clone()).collect::<Vec<_>>().join("; ");
     let prompt = format!("Topic: {}. New pages: {}. One-sentence summary:", if e.name_en.is_empty() { &e.name } else { &e.name_en }, titles);
-    let url = format!("{}/v1/generate", cfg.llm_url.trim_end_matches('/'));
+    let url = format!("{}/aruaru_llm.v1.Llm/Generate", cfg.llm_url.trim_end_matches('/'));
     let resp = http.post(&url).timeout(Duration::from_secs(cfg.llm_timeout_secs)).json(&json!({"prompt": prompt, "max_new_tokens": 48})).send()?;
     if !resp.status().is_success() {
         return Err(anyhow!("HTTP {}", resp.status()));
