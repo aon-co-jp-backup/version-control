@@ -513,6 +513,27 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
         messages.push(("signals".to_string(), "update-needed".to_string(), format!("[version-control] API例外: 置き換えの兆候 {n_signals}件"), body));
     }
 
+    // Daily progress toward abolition: what REST-like routes remain, per repository, and the change since the previous day.
+    let key = format!("progress-{}", snap.date);
+    if !st.notified.contains_key(&key) && snap.total_rest_like > 0 {
+        let prev_total = st.history.iter().rev().find(|h| h.date != snap.date).map(|h| h.total_rest_like);
+        let mut rows: Vec<(&String, &RouteCount)> = snap.repos.iter().filter(|(_, c)| c.rest_like > 0).collect();
+        rows.sort_by(|a, b| b.1.rest_like.cmp(&a.1.rest_like).then(a.0.cmp(b.0)));
+        let delta = prev_total.map(|p| format!("(前日比 {:+})", snap.total_rest_like as i64 - p as i64)).unwrap_or_default();
+        let mut body = format!("REST 全廃の進み具合です。残っている REST 風ルート(目安)は合計 {} 本 {delta}。
+
+多い順:
+", snap.total_rest_like);
+        for (n, c) in rows.iter().take(15) {
+            body.push_str(&format!("  {:<34} {} 本(うち /api/・/admin/ は {})
+", n, c.rest_like, c.api_admin));
+        }
+        body.push_str("
+次の1本を進めるなら、上位のリポジトリを Claude Code に渡し「このリポジトリの REST 風ルートを Connect(POST /<パッケージ>.<Service>/<Method>)へ移し、旧ルートを消す」と頼んでください。例外は exceptions.toml を参照。
+");
+        messages.push((key, "info".to_string(), format!("[version-control] REST全廃の進捗 {}: 残り{}本", snap.date, snap.total_rest_like), body));
+    }
+
     if let Some(days) = parse_date(&date_jst(now)).zip(parse_date(&ledger.checked)).map(|(a, b)| a - b) {
         if days > 30 {
             messages.push((
