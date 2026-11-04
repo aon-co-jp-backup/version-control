@@ -128,6 +128,19 @@ fn main() -> Result<()> {
         }
         let scan_dir = snap.dir(&dir);
         let mut rs = scan_repo(&dir, &scan_dir, &cfg, &mut registry, maintainer_alive);
+        // A worktree copy whose `.git` points to a vanished directory has no upstream and can never be refreshed: say so.
+        if git(&dir, &["rev-parse", "--git-dir"], Duration::from_secs(20)).is_none() {
+            println!("  warn: {} has a broken .git (worktree source missing); its files may be stale", dir.file_name().unwrap_or_default().to_string_lossy());
+            rs.items.push(report::Item {
+                source: "clone".into(),
+                name: "broken-git".into(),
+                req: "gitdir missing".into(),
+                latest: "worktree の元リポジトリが無く更新できない。持ち主が削除するか `git worktree repair` / 再 clone する(古い lock を脆弱と誤報しうる)".into(),
+                gap: "error".into(),
+                route: "claude".into(),
+                file: ".git".into(),
+            });
+        }
         if let Some(db) = &advisories {
             add_advisories(&mut rs, &scan_dir, db, &cfg);
         }
