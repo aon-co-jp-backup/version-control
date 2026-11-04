@@ -21,6 +21,9 @@ pub struct RepoStatus {
     pub deps_checked: usize,
     pub unchecked: usize,
     pub items: Vec<Item>,
+    /// Findings deliberately mitigated by replacing the crate (shown on the dashboard, never routed to anyone).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitigated: Vec<Item>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -113,7 +116,7 @@ mod tests {
 
     #[test]
     fn only_claude_items_are_in_prompt() {
-        let r = RepoStatus { name: "x".into(), deps_checked: 2, unchecked: 0, items: vec![item("major", "claude"), item("patch", "maintainer")] };
+        let r = RepoStatus { name: "x".into(), deps_checked: 2, unchecked: 0, items: vec![item("major", "claude"), item("patch", "maintainer")], ..Default::default() };
         let p = claude_prompt("F:/", &r, 12);
         assert!(p.contains("poem") && p.contains("F:\\x") && p.matches("- crates.io").count() == 1);
     }

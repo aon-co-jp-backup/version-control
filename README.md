@@ -51,6 +51,26 @@ target/release/version-control --demo     # 公開デモ用のサンプルデー
 
 画面は `site/`(`index.html` + `status.json`)に出力されます。**非公開リポジトリ名(`private`)は画面データから除外**されます。crates.io は 1 秒に 1 回までの規約に合わせて待つため、初回の全走査は数分かかります(結果は `registry_cache_hours` の間キャッシュ)。
 
+## 対処法の提示と自動対応(`--fix`)
+
+未対応の脆弱性(RustSec)には、状態表の各行に **具体的な対処法** を添える(`→ 対処: …`)。
+* 修正版がある → 「`Cargo.toml` の crate を X 以上にして `cargo update -p crate` → ビルドとテスト」。
+* 修正版がない → 登録済みの緩和策(`[[advisory.mitigations]]`。既定は `RUSTSEC-2023-0071` の `rsa` → `aon-co-jp/rsa-rs`)の手順。登録が無ければ「利用箇所と影響を確認、使わないなら外す、代替crateを検討」と正直に書く。
+* 緩和策で **差し替え済み**のものは、消さずに `mitigated`(対策済み)として別枠で見せる(経路は誰にも振らない)。注意書き「rsa-rs は実験的・第三者の暗号監査なし」も併記する。
+
+`--fix` は上記を実際に直す。**既定は計画の表示だけ**。
+```bash
+version-control --dry-run --no-fetch --fix                     # 計画だけ
+version-control --fix --apply [--only <repo>] [--push]         # 実行(下の条件つき)
+```
+* 実行は `config.toml` の `[fix] enabled = true` の機械だけ(**VPS は false のまま**。重いビルドをしない)。`--push` は `[fix] allow_push = true` も要る。
+* 作業は GitHub の `origin` を **新規 clone した別フォルダ**(`~/.vc-fix`)で行い、手元の作業ツリーには触れない。
+* 流れ: clone → 修正(緩和策の `[patch]` 追加 / `cargo update --precise`) → 対象が registry 由来で残っていないか確認 → `cargo test --no-fail-fast` → 小さな別コミット。**テストが全て通ったときだけ push**。
+* 固定(`.deps/…` や `deps.lock`)の写しは、そのリポジトリでは直せない。依存元を直してから `scripts/update-deps.sh <名前>` で固定を更新する、と計画に出す。
+* パッチ前から失敗するテスト(環境依存)がある場合は push されない。事前に比較してから手動で。
+
+重い処理: 巡回の検索待ちは並列化済み(aruaru-search への開始間隔は従来どおり 800ms)。ビルドを伴う `--fix --apply` は手元(WSL 等)で。コンパイルや git の待ちは GPU(open-cuda / open-directx)では短縮できないので使っていない。
+
 ## 運用
 
 VPS では `easy-web.tokyo/version-control` として静的配信し、systemd タイマーで 1 日数回実行します。手順は [`PORTING.md`](PORTING.md)。

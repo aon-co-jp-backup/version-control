@@ -4,6 +4,7 @@
 mod advisory;
 mod apiex;
 mod config;
+mod fix;
 mod latest;
 mod notify;
 mod report;
@@ -39,10 +40,14 @@ struct Args {
     demo: bool,
     no_api: bool,
     api_only: bool,
+    fix: bool,
+    apply: bool,
+    push: bool,
+    only: Option<String>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false };
+    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, only: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -54,6 +59,10 @@ fn parse_args() -> Args {
             "--demo" => a.demo = true,
             "--no-api" => a.no_api = true,
             "--api-only" => a.api_only = true,
+            "--fix" => a.fix = true,
+            "--apply" => a.apply = true,
+            "--push" => a.push = true,
+            "--only" => a.only = it.next(),
             "-h" | "--help" => {
                 println!("version-control [--config FILE] [--dry-run] [--force] [--no-fetch] [--test-notify] [--demo]\n  --dry-run      scan and write the dashboard, send nothing\n  --force        announce even if the message was already sent\n  --test-notify  send a short test message by e-mail and LINE\n  --no-api       skip the API exception patrol
   --api-only     run only the API exception patrol (ledger, route counts, notice)
@@ -119,6 +128,9 @@ fn main() -> Result<()> {
         repos.push(rs);
     }
     state.cache = std::mem::take(&mut registry.cache);
+    if args.fix {
+        run_fix(&repos, &cfg, &args);
+    }
 
     // Dashboard data: private repositories are left out entirely.
     let hidden = repos.iter().filter(|r| cfg.private.contains(&r.name)).count();
@@ -356,7 +368,8 @@ fn add_advisories(rs: &mut RepoStatus, dir: &Path, db: &advisory::Db, cfg: &Conf
             continue;
         }
         let fix = if h.adv.patched_text.is_empty() { "修正版なし".to_string() } else { format!("修正: {}", h.adv.patched_text.join(" / ")) };
-        let latest = format!("{} {} — {}", h.adv.id, fix, h.adv.title.chars().take(80).collect::<String>());
+        let remedy = remedy_for(&h, cfg);
+        let latest = format!("{} {} — {} → 対処: {}", h.adv.id, fix, h.adv.title.chars().take(80).collect::<String>(), remedy);
         rs.items.push(Item {
             source: if vuln { "RustSec".into() } else { format!("RustSec/{}", h.adv.informational) },
             name: h.krate,
@@ -367,6 +380,35 @@ fn add_advisories(rs: &mut RepoStatus, dir: &Path, db: &advisory::Db, cfg: &Conf
             file: h.lock,
         });
     }
+    // Findings that are already handled by swapping the crate for a vetted replacement stay visible (never routed to anyone).
+    for m in advisory::mitigated(db, dir, &cfg.advisory.mitigations) {
+        let src = m.source.split('#').next().unwrap_or(&m.source).to_string();
+        rs.mitigated.push(Item {
+            source: "RustSec/mitigated".into(),
+            name: m.krate,
+            req: m.version,
+            latest: format!("{} 対策済み(差し替え: {}) — {}", m.advisory, src, m.caveat),
+            gap: "mitigated".into(),
+            route: "none".into(),
+            file: m.lock,
+        });
+    }
+}
+
+/// A concrete next step for an open advisory: a version bump when a fixed release exists, a configured mitigation
+/// when one is known, and otherwise an honest "no fix" with the options that remain.
+fn remedy_for(h: &advisory::Hit, cfg: &Config) -> String {
+    if !h.adv.patched_text.is_empty() {
+        return format!(
+            "Cargo.toml の {0} を {1} 以上にして `cargo update -p {0}` → ビルドとテスト(固定が別リポジトリの場合は固定を最新に更新)",
+            h.krate,
+            h.adv.patched_text.join(" / ")
+        );
+    }
+    if let Some(m) = cfg.advisory.mitigations.iter().find(|m| m.advisory == h.adv.id && m.krate == h.krate) {
+        return m.fix.clone();
+    }
+    format!("修正版なし。{} の利用箇所と影響(ネットワークから時間を観測できる秘密鍵演算か)を確認し、使わない機能なら依存から外す/代替crateへの置き換えを検討", h.krate)
 }
 
 fn write_site(dir: &Path, status: &Status) -> Result<()> {
@@ -384,10 +426,10 @@ fn write_demo(dir: &Path) -> Result<()> {
         demo: true,
         maintainers: vec![MaintainerStatus { name: "aruaru-llm".into(), alive: true }, MaintainerStatus { name: "open-cuda".into(), alive: false }],
         repos: vec![
-            RepoStatus { name: "sample-web".into(), deps_checked: 24, unchecked: 0, items: vec![it("crates.io", "serde", "1.0.200", "1.0.228", "patch", "maintainer", "Cargo.toml"), it("crates.io", "poem", "3.1", "4.0.0", "major", "claude", "Cargo.toml")] },
-            RepoStatus { name: "sample-tool".into(), deps_checked: 9, unchecked: 0, items: vec![it("npm", "vite", "^5.2.0", "7.1.0", "major", "claude", "package.json"), it("clone", "origin", "ahead 0", "3", "behind", "claude", "")] },
-            RepoStatus { name: "sample-lib".into(), deps_checked: 12, unchecked: 1, items: vec![it("crates.io", "tokio", "1.30", "1.47.0", "minor", "maintainer", "Cargo.toml")] },
-            RepoStatus { name: "sample-site".into(), deps_checked: 6, unchecked: 0, items: vec![] },
+            RepoStatus { name: "sample-web".into(), deps_checked: 24, unchecked: 0, items: vec![it("crates.io", "serde", "1.0.200", "1.0.228", "patch", "maintainer", "Cargo.toml"), it("crates.io", "poem", "3.1", "4.0.0", "major", "claude", "Cargo.toml")], ..Default::default() },
+            RepoStatus { name: "sample-tool".into(), deps_checked: 9, unchecked: 0, items: vec![it("npm", "vite", "^5.2.0", "7.1.0", "major", "claude", "package.json"), it("clone", "origin", "ahead 0", "3", "behind", "claude", "")], ..Default::default() },
+            RepoStatus { name: "sample-lib".into(), deps_checked: 12, unchecked: 1, items: vec![it("crates.io", "tokio", "1.30", "1.47.0", "minor", "maintainer", "Cargo.toml")], ..Default::default() },
+            RepoStatus { name: "sample-site".into(), deps_checked: 6, unchecked: 0, items: vec![], ..Default::default() },
         ],
         hidden_private: 2,
     };
@@ -399,4 +441,31 @@ fn write_demo(dir: &Path) -> Result<()> {
     }
     println!("demo status written to {}", dir.display());
     Ok(())
+}
+
+/// `--fix`: print the plan for every open vulnerability; with `--apply` (and `[fix] enabled`) carry it out in fresh clones.
+fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args) {
+    let mut plans = Vec::new();
+    for rs in repos.iter().filter(|r| args.only.as_ref().map_or(true, |o| &r.name == o)) {
+        plans.extend(fix::plan(&cfg.root.join(&rs.name), rs, cfg));
+    }
+    println!("--- fix plan ({} item(s)) ---", plans.len());
+    for p in &plans {
+        println!("{}", fix::describe(p));
+    }
+    if !args.apply {
+        println!("(計画のみ。実行するには --fix --apply。[fix] enabled = true の機械でだけ動く)");
+        return;
+    }
+    if !cfg.fix.enabled {
+        println!("[fix] enabled = false のため実行しません(この機械はビルドしない設定)。");
+        return;
+    }
+    let push = args.push && cfg.fix.allow_push;
+    if args.push && !cfg.fix.allow_push {
+        println!("--push は [fix] allow_push = false のため無視(ローカルコミットまで)。");
+    }
+    for line in fix::apply(&plans, push, Path::new("scripts/remediate.sh")) {
+        println!("{line}");
+    }
 }

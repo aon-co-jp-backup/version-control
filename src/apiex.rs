@@ -329,12 +329,26 @@ fn research(http: &reqwest::blocking::Client, cfg: &ApiEx, e: &Exception, st: &m
     let seen = st.seen_links.entry(e.id.clone()).or_default();
     let mut errors = Vec::new();
     let mut all = Vec::new();
-    for q in &e.search_queries {
-        std::thread::sleep(Duration::from_millis(800));
-        let got = search(http, cfg, q).or_else(|_| {
-            std::thread::sleep(Duration::from_secs(3));
-            search(http, cfg, q)
-        });
+    // The queries wait mostly on aruaru-search, so they run concurrently. The start times stay 800 ms apart (the same
+    // politeness as before), only the waiting overlaps; results are collected in query order, so the output is unchanged.
+    let results: Vec<Result<Vec<Hit>>> = std::thread::scope(|s| {
+        let handles: Vec<_> = e
+            .search_queries
+            .iter()
+            .enumerate()
+            .map(|(i, q)| {
+                s.spawn(move || {
+                    std::thread::sleep(Duration::from_millis(800 * (i as u64 + 1)));
+                    search(http, cfg, q).or_else(|_| {
+                        std::thread::sleep(Duration::from_secs(3));
+                        search(http, cfg, q)
+                    })
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("search thread panicked")))).collect()
+    });
+    for got in results {
         match got {
             Ok(h) => {
                 r.search_ok = true;

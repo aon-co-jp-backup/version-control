@@ -21,6 +21,9 @@ pub struct Config {
     pub advisory: Advisory,
     #[serde(default)]
     pub apiex: ApiEx,
+    /// Automatic remediation (`--fix`). Off by default; turn on only on a machine that may build.
+    #[serde(default)]
+    pub fix: Fix,
     /// Folder the dashboard (`index.html` + `status.json`) is written to.
     #[serde(default = "default_site")]
     pub site_dir: PathBuf,
@@ -62,12 +65,41 @@ pub struct Advisory {
     /// Include "unmaintained"/"unsound"/"notice" advisories (they are never vulnerabilities, so they go to the maintainers).
     #[serde(default = "yes")]
     pub include_informational: bool,
+    /// Known mitigations. A lock entry whose source starts with `source_prefix` is a deliberate replacement for
+    /// the vulnerable registry crate, so it is listed as "mitigated" instead of silently disappearing.
+    #[serde(default = "default_mitigations")]
+    pub mitigations: Vec<Mitigation>,
 }
 
 impl Default for Advisory {
     fn default() -> Self {
-        Self { enabled: true, url: default_adv_url(), dir: default_adv_dir(), include_informational: true }
+        Self { enabled: true, url: default_adv_url(), dir: default_adv_dir(), include_informational: true, mitigations: default_mitigations() }
     }
+}
+
+/// One entry of `[[advisory.mitigations]]`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Mitigation {
+    pub advisory: String,
+    #[serde(rename = "crate")]
+    pub krate: String,
+    /// Prefix of the lock `source`, e.g. `git+https://github.com/aon-co-jp/rsa-rs`.
+    pub source_prefix: String,
+    /// Concrete remedy shown next to open findings, so the fix is one step away.
+    pub fix: String,
+    /// Honest caveat shown next to mitigated entries.
+    #[serde(default)]
+    pub caveat: String,
+}
+
+fn default_mitigations() -> Vec<Mitigation> {
+    vec![Mitigation {
+        advisory: "RUSTSEC-2023-0071".into(),
+        krate: "rsa".into(),
+        source_prefix: "git+https://github.com/aon-co-jp/rsa-rs".into(),
+        fix: "Cargo.toml に [patch.crates-io] rsa = { git = \"https://github.com/aon-co-jp/rsa-rs\", tag = \"v0.1.0\", version = \"=<ロックのrsa版>\" } を追加し、cargo update -p crypto-bigint --precise 0.7.10(手順: rsa-rs の PORTING.md)".into(),
+        caveat: "rsa-rs は実験的・第三者の暗号監査なし".into(),
+    }]
 }
 
 fn default_adv_url() -> String {
@@ -168,4 +200,14 @@ impl Config {
         let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("invalid {}", path.display()))
     }
+}
+
+/// `[fix]`: whether `--fix --apply` may run here at all.
+#[derive(Debug, Default, Deserialize)]
+pub struct Fix {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allow `--push` (otherwise changes stay as local commits in the work folder).
+    #[serde(default)]
+    pub allow_push: bool,
 }

@@ -153,3 +153,48 @@ mod tests {
         assert!(parse_advisory(&t).is_none());
     }
 }
+
+/// A locked package that replaces a vulnerable registry crate through a configured mitigation.
+pub struct Mitigated {
+    pub krate: String,
+    pub version: String,
+    pub advisory: String,
+    pub source: String,
+    pub caveat: String,
+    pub lock: String,
+}
+
+/// (name, version, source) of every locked package that does *not* come from the registry.
+fn locked_non_registry(path: &Path) -> Vec<(String, Version, String)> {
+    let Ok(text) = std::fs::read_to_string(path) else { return vec![] };
+    let Ok(doc) = toml::from_str::<toml::Table>(&text) else { return vec![] };
+    doc.get("package")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            let t = p.as_table()?;
+            let src = t.get("source")?.as_str()?;
+            if src.starts_with("registry+") {
+                return None;
+            }
+            Some((t.get("name")?.as_str()?.to_string(), Version::parse(t.get("version")?.as_str()?).ok()?, src.to_string()))
+        })
+        .collect()
+}
+
+/// Lock entries that the advisory would hit if they came from the registry, but that come from a configured mitigation source.
+pub fn mitigated(db: &Db, repo: &Path, mits: &[crate::config::Mitigation]) -> Vec<Mitigated> {
+    let mut out = Vec::new();
+    for lock in find_locks(repo) {
+        let rel = lock.strip_prefix(repo).unwrap_or(&lock).to_string_lossy().replace('\\', "/");
+        for (name, ver, src) in locked_non_registry(&lock) {
+            for m in mits.iter().filter(|m| m.krate == name && src.starts_with(&m.source_prefix)) {
+                if db.get(&name).into_iter().flatten().any(|a| a.id == m.advisory && a.affects(&ver)) {
+                    out.push(Mitigated { krate: name.clone(), version: ver.to_string(), advisory: m.advisory.clone(), source: src.clone(), caveat: m.caveat.clone(), lock: rel.clone() });
+                }
+            }
+        }
+    }
+    out
+}
