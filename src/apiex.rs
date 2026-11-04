@@ -467,7 +467,7 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
                 body.push_str(&format!("  …ほか {} 本\n", added.len() - 15));
             }
         }
-        body.push_str("\n(数え方は静的な目安です: axum の .route、poem の .at、hyper の (Method, \"/path\") を拾います。誤検出なら exceptions.toml / scan の対象外に追加してください。)\n");
+        body.push_str("\n(数え方は静的な目安です: axum の .route、poem の .at、hyper の (Method, \"/path\") を拾います。誤検出なら exceptions.toml / scan の対象外に追加してください。また、巡回先のクローンを git pull で更新しただけでも増えて見えます。古いコード側のルートなら、移行済みの側で消えているかを確認してください。)\n");
         let subject = format!("[version-control] API方針違反の疑い: REST風ルートが増加 ({}件のリポジトリ)", increases.len());
         messages.push(("rest-increase".to_string(), "needs-claude".to_string(), subject, body));
     }
