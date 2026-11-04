@@ -16,6 +16,8 @@
 
 - **open-cpu / open-directx / open-cuda を使ったか(2026-11-04 実測)**: 使っていない。API 例外の巡回(手元 PC、release)の実測は、検索の待ち 94.4 秒(ネットワーク待ち・検索語間の待機)、ルート数え 初回 67.9 秒(ディスクが冷えている時)・2 回目 3.7 秒。重いのは I/O と待ちで、SIMD/GPU で速くなる計算(ハッシュ・類似検索など)は巡回に無い。実測で速くなる所が無いので、依存(`../open-cpu` など)は足していない。重い計算(大量文章の類似検索など)を足すときに、再度実測してから検討する。
 
+- **走査の対象は upstream(origin)の最新(2026-11-05〜)**: `git fetch` のあと `git ls-tree` / `git show @{u}:…` で Cargo.toml・Cargo.lock・package.json・composer.json を一時フォルダへ出して走査する(読み取りのみ・`git pull` なし)。クローンの遅れ(behind/ahead)は別項目として従来どおり出す。upstream が無い・fetch に失敗したリポジトリは、クローンの中身を読み、実行ログに `note: <名前> reads the clone as it is` と出る(VPS で 6 件: RUNO・atr-sonic・audiocafe-tokyo・open-github-backup・ows-base・ows-stream。非公開リポジトリの認証が VPS に無いのが主因と思われる。VPS に組織全体のトークンは置かない)。
+
 ### 通知の設定
 1. メール: `OPEN_EASYWEB_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM`(open-easy-web と同じ)。宛先は `config.toml` の `notify.email_to`。
 2. LINE: LINE Developers で Messaging API のチャネルを作り、**長期チャネルアクセストークン**を `F:\line-channel-token.txt`、自分の**ユーザー ID(U で始まる)**を `F:\line-user-id.txt` に保存(各 1 行)。そのチャネルの公式アカウントを友だち追加。`config.toml` の `notify.line_token_file` / `notify.line_to_file` にパスを書く。VPS へは `scp` でファイルを送り、パスを VPS の `config.toml` に書く(値は表示しない)。
