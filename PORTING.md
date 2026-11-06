@@ -270,3 +270,5 @@ version-control --fix --apply [--only repo] [--pr|--push]
 ### 確認済み・未確認
 * WSL(32コア・GT 730)で `--hw`・計画・`--apply`(RS-JSON の lock 更新→テスト)まで実機確認。RS-JSON は更新前から examples のビルドが通らず(`fast` 機能なし)、これを「更新は無関係の失敗」として Claude 宛に回すことを確認。
 * **未確認**: 実際の `--pr`(gh での PR 作成)と `--push` の実往復、aruaru-llm が起動している状態での要約(WSLでは未起動)。
+
+**VPS 反映(2026-11-06 夕)**: リリースビルド(最大 GLIBC_2.39)→scp→`version-control.bak-20261106b` と `config.toml.bak-20261106b` に退避→入れ替え→`--hw`・`--dry-run` で確認。VPS の `config.toml` の aruaru-llm `health_url` を Connect の `.../aruaru_llm.v1.Llm/Accelerators`(POST)に直した(旧 `/v1/accelerators` は REST 廃止後 404 で、常に DOWN と誤判定→全件を Claude 宛にしていた)。VPS 上でタイマー実行(12:20)は 11-05 の Connect 化後も成功、`Generate`/`Accelerators` も応答を確認。戻すには両 `bak-20261106b` を戻す。注意: DOWN 誤判定が直ったため、次回の通知は件数が減り内容が変わる(再送が1回出る)。
