@@ -188,3 +188,5 @@ The procedure is in [`PORTING.md`](PORTING.md); the **resume message is at its e
 方針(`F:\runo\CLAUDE.md`「JSON処理の使用方針」)どおり、JSON を読む4か所を RS-JSON の `parse_secure_sonic`(SIMD版・サイズ/深さ/重複キーの上限つき、値は `sonic_rs::Value`)に切り替えた: 最新版の問い合わせ(`latest.rs`: crates.io/npm/packagist)、`package.json`/`composer.json` の走査(`scan.rs`)、aruaru-search と aruaru-llm の応答(`apiex.rs`)。状態ファイル `state.json`(自分で書いた信頼できるローカルファイル)は型付きで `sonic_rs::from_str`。書き出しは従来どおり。
 - **実測(前後)**: 約409 KB(依存2万件)の `package.json` の読み取り+抽出(`scan::parse_json`)が **約30 ms → 約8 ms(約3.5倍)**。`cargo test --release bench_parse_json -- --ignored --nocapture` で再現。
 - 試験: `cargo test` 全通過(14件)。
+
+**VPS 反映(2026-11-06)**: WSL でリリースビルド → 最大 GLIBC_2.39 を確認 → scp → `target/release/version-control.bak-20261106` へバックアップ → 入れ替え → `--dry-run --no-api` で走査が動くこと(通知なし)を確認。タイマー(00/06/12/18時の:20)はそのまま。戻すには `bak-20261106` を `version-control` へ戻す。
