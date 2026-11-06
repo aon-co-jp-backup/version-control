@@ -330,14 +330,15 @@ fn search(http: &reqwest::blocking::Client, cfg: &ApiEx, q: &str) -> Result<Vec<
     if !resp.status().is_success() {
         return Err(anyhow!("HTTP {}", resp.status()));
     }
-    let v = rust_json::parse_secure(&resp.text()?, &rust_json::Limits::default()).map_err(|e| anyhow!("bad JSON from aruaru-search: {e}"))?;
+    use sonic_rs::{JsonContainerTrait, JsonValueTrait};
+    let v = rust_json::parse_secure_sonic(&resp.text()?, &rust_json::Limits::default()).map_err(|e| anyhow!("bad JSON from aruaru-search: {e}"))?;
     let mut out = Vec::new();
-    for r in v.get("results").and_then(Value::as_array).into_iter().flatten() {
-        let link = r.get("link").and_then(Value::as_str).unwrap_or("");
+    for r in v.get("results").and_then(|x| x.as_array()).into_iter().flat_map(|a| a.iter()) {
+        let link = r.get("link").and_then(|x| x.as_str()).unwrap_or("");
         if !http_link(link) {
             continue;
         }
-        out.push(Hit { title: clip(r.get("title").and_then(Value::as_str).unwrap_or(""), 140), link: link.chars().take(300).collect(), snippet: clip(r.get("snippet").and_then(Value::as_str).unwrap_or(""), 300) });
+        out.push(Hit { title: clip(r.get("title").and_then(|x| x.as_str()).unwrap_or(""), 140), link: link.chars().take(300).collect(), snippet: clip(r.get("snippet").and_then(|x| x.as_str()).unwrap_or(""), 300) });
     }
     Ok(out)
 }
@@ -351,8 +352,9 @@ fn llm_note(http: &reqwest::blocking::Client, cfg: &ApiEx, e: &Exception, signal
     if !resp.status().is_success() {
         return Err(anyhow!("HTTP {}", resp.status()));
     }
-    let v = rust_json::parse_secure(&resp.text()?, &rust_json::Limits::default()).map_err(|e| anyhow!("bad JSON from aruaru-llm: {e}"))?;
-    Ok(clip(v.get("completion").and_then(Value::as_str).unwrap_or(""), 240))
+    use sonic_rs::JsonValueTrait;
+    let v = rust_json::parse_secure_sonic(&resp.text()?, &rust_json::Limits::default()).map_err(|e| anyhow!("bad JSON from aruaru-llm: {e}"))?;
+    Ok(clip(v.get("completion").and_then(|x| x.as_str()).unwrap_or(""), 240))
 }
 
 fn research(http: &reqwest::blocking::Client, cfg: &ApiEx, e: &Exception, st: &mut State, dry_log: bool) -> Research {

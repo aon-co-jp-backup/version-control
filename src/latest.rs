@@ -1,8 +1,9 @@
 //! Latest-version lookups (crates.io / npm / packagist) with an on-disk cache.
-//! Every response is untrusted external JSON and is read with `rust_json::parse_secure`.
+//! Every response is untrusted external JSON and is read with `rust_json::parse_secure_sonic`.
 use crate::scan::Eco;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
+use sonic_rs::{JsonContainerTrait, JsonValueTrait};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -45,7 +46,7 @@ impl Registry {
         Ok(found)
     }
 
-    fn get(&self, url: &str) -> Result<Option<serde_json::Value>> {
+    fn get(&self, url: &str) -> Result<Option<sonic_rs::Value>> {
         let resp = self.http.get(url).send()?;
         if resp.status().as_u16() == 404 {
             return Ok(None);
@@ -54,7 +55,7 @@ impl Registry {
             return Err(anyhow!("HTTP {} from {}", resp.status(), url));
         }
         let text = resp.text()?;
-        let v = rust_json::parse_secure(&text, &rust_json::Limits::default()).map_err(|e| anyhow!("bad JSON from {url}: {e}"))?;
+        let v = rust_json::parse_secure_sonic(&text, &rust_json::Limits::default()).map_err(|e| anyhow!("bad JSON from {url}: {e}"))?;
         Ok(Some(v))
     }
 

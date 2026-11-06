@@ -1,5 +1,5 @@
 //! Finds the manifests of one repository and extracts the registry dependencies they declare.
-use serde_json::Value as Json;
+use sonic_rs::{JsonContainerTrait, JsonValueTrait, Value as Json};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -114,7 +114,7 @@ fn parse_cargo(text: &str, file: &str) -> Result<Vec<Dep>, String> {
 
 fn parse_json(text: &str, file: &str, eco: Eco, sections: &[&str]) -> Result<Vec<Dep>, String> {
     // Manifests can be large (lock-like package.json files): use the default limits, not `small`.
-    let v: Json = rust_json::parse_secure(text, &rust_json::Limits::default()).map_err(|e| e.to_string())?;
+    let v: Json = rust_json::parse_secure_sonic(text, &rust_json::Limits::default()).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for s in sections {
         let Some(map) = v.get(*s).and_then(|m| m.as_object()) else { continue };
@@ -123,7 +123,7 @@ fn parse_json(text: &str, file: &str, eco: Eco, sections: &[&str]) -> Result<Vec
             if eco == Eco::Composer && (name == "php" || name.starts_with("ext-") || name.starts_with("lib-")) {
                 continue;
             }
-            out.push(Dep { eco, name: name.clone(), req: req.to_string(), file: file.to_string() });
+            out.push(Dep { eco, name: name.to_string(), req: req.to_string(), file: file.to_string() });
         }
     }
     Ok(out)
@@ -249,5 +249,31 @@ lettre = "0.11"
         assert!(names.contains(&"serde") && names.contains(&"poem") && names.contains(&"regex"));
         assert!(names.contains(&"tokio") && names.contains(&"lettre"));
         assert!(!names.contains(&"sib"));
+    }
+}
+
+#[cfg(test)]
+mod bench_json {
+    use super::*;
+
+    /// 実測用(`cargo test --release bench_parse_json -- --ignored --nocapture`)。大きな package.json 風の入力を読む時間。
+    #[test]
+    #[ignore]
+    fn bench_parse_json() {
+        let mut deps = String::new();
+        for i in 0..20000 {
+            if i > 0 {
+                deps.push(',');
+            }
+            deps.push_str(&format!("\"pkg-{i}\":\"^{}.{}.0\"", i % 20, i % 7));
+        }
+        let text = format!("{{\"name\":\"big\",\"dependencies\":{{{deps}}}}}");
+        let n = 50;
+        let t = std::time::Instant::now();
+        for _ in 0..n {
+            let d = parse_json(&text, "package.json", Eco::Npm, &["dependencies"]).unwrap();
+            std::hint::black_box(d.len());
+        }
+        println!("parse_json: {} KB, {:.2} ms/call", text.len() / 1024, t.elapsed().as_secs_f64() * 1000.0 / n as f64);
     }
 }

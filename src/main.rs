@@ -95,7 +95,7 @@ fn main() -> Result<()> {
     }
 
     let state_path = PathBuf::from("state.json");
-    let mut state: State = std::fs::read_to_string(&state_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let mut state: State = std::fs::read_to_string(&state_path).ok().and_then(|t| sonic_rs::from_str(&t).ok()).unwrap_or_default();
     if args.api_only {
         run_apiex(&cfg, &mut state, &args);
         std::fs::write(&state_path, serde_json::to_string_pretty(&state)?).context("cannot write state.json")?;
