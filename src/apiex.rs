@@ -664,6 +664,8 @@ mod tests {
     fn connect_vs_rest_paths() {
         assert!(is_connect_path("/open_easy_web.admin.v1.Notify/Send"));
         assert!(is_connect_path("/grpc.health.v1.Health/Check"));
+        assert!(is_connect_path("/rs_sync.v1.Sync/DeleteAccount/:id"));
+        assert!(is_connect_path("/rs_sync.v1.Sync/:method"));
         assert!(!is_connect_path("/api/users"));
         assert!(!is_connect_path("/v1/search"));
         assert!(!is_connect_path("/index.html"));
