@@ -36,6 +36,7 @@
 - 前面で受けているのは nginx ではなく `open-web-server`。変更後は `systemctl restart open-web-server`。
 - API 例外の巡回は、VPS では `scripts/load-admin-token.sh`(`ExecStartPre`)が `env.api` を作る。ローカルでは検索が `127.0.0.1:4610` に無いので「利用不可」と記録して続行する(`ssh -L 4610:127.0.0.1:4610 conoha` で試せる)。
 - Git Bash は `/mnt/...` を書き換える(WSL の呼び出しは PowerShell)。
+- REST 風ルートの数は、クローンではなく **origin の最新(`git archive @{u}` の `.rs`)** から数える(読み取りのみ)。origin が読めないクローンは作業コピーで数え、`[clone]` と表示する。
 
 ### お引越し(別のアカウント・PC・VPS へ)
 手順の正本は [`PORTING.md`](PORTING.md)。**再開用メッセージは `PORTING.md` 末尾**にある(新しい Claude セッションにそのまま貼る)。
@@ -66,6 +67,7 @@ Live: `https://easy-web.tokyo/version-control/`, demo: `/demo/` (sample data).
 - On the VPS the two `domains.toml` paths are the **same file (hard link)**: append once. Port 8125 belongs to `open-mirror`; this service uses **8126**.
 - The edge server is `open-web-server`, not nginx; restart it after route changes.
 - Git Bash rewrites `/mnt/...` paths (use PowerShell for WSL calls).
+- REST-like route counts are read from **origin** (`git archive @{u}`, `.rs` files; read-only). A clone without a readable upstream falls back to its working copy and is printed as `[clone]`.
 
 ### Migration (to another account / PC / VPS)
 The procedure is in [`PORTING.md`](PORTING.md); the **resume message is at its end** (paste it into a fresh Claude session).

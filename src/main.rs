@@ -329,7 +329,7 @@ impl Drop for OriginSnap {
 }
 
 /// Runs git with a hard time limit so one unreachable remote cannot stall the whole scan.
-fn git(dir: &Path, args: &[&str], limit: Duration) -> Option<String> {
+pub(crate) fn git(dir: &Path, args: &[&str], limit: Duration) -> Option<String> {
     let mut child = Command::new("git")
         .arg("-C")
         .arg(dir)

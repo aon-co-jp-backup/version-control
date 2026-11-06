@@ -201,6 +201,38 @@ fn collect_files(dir: &Path, rel: &str, skip: &[String], out: &mut Vec<PathBuf>)
     }
 }
 
+/// Extracts the `.rs` files of the upstream (`@{u}`) tree into a temp dir with `git archive | tar -x` (read-only: no checkout, no pull).
+/// Returns None when the clone has no upstream or git/tar fail, so the caller falls back to the working copy.
+fn origin_rs_snapshot(dir: &Path) -> Option<std::path::PathBuf> {
+    use std::process::{Command, Stdio};
+    let name = dir.file_name()?.to_string_lossy().to_string();
+    let root = std::env::temp_dir().join(format!("vc-apiex-{}-{}", std::process::id(), name));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).ok()?;
+    let mut ar = Command::new("git").arg("-C").arg(dir).args(["archive", "--format=tar", "@{u}", ":(glob)**/*.rs"]).env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let out = ar.stdout.take()?;
+    let tar = Command::new("tar").arg("-x").arg("-C").arg(&root).stdin(out).stdout(Stdio::null()).stderr(Stdio::null()).status().ok();
+    let ar_ok = ar.wait().map(|s| s.success()).unwrap_or(false);
+    if ar_ok && tar.map(|s| s.success()).unwrap_or(false) {
+        Some(root)
+    } else {
+        let _ = std::fs::remove_dir_all(&root);
+        None
+    }
+}
+
+/// Like `count_routes`, but reads the upstream (origin) tree when available; the bool says whether origin was used.
+pub fn count_routes_origin(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> ((RouteCount, BTreeSet<String>), bool) {
+    match origin_rs_snapshot(repo_dir) {
+        Some(root) => {
+            let r = count_routes(&root, repo, skip_paths);
+            let _ = std::fs::remove_dir_all(&root);
+            (r, true)
+        }
+        None => (count_routes(repo_dir, repo, skip_paths), false),
+    }
+}
+
 /// Counts route registrations of axum (`.route("/x"`), poem (`.at("/x"`) and hand-written hyper dispatch
 /// (`(&Method::GET, "/x")` / `("GET", "/x")`). A static heuristic: an upper bound for HTML page routes, blind to routes built at runtime.
 pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (RouteCount, BTreeSet<String>) {
@@ -441,11 +473,19 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
     // (b) route counts
     let mut snap = Snapshot { t: now, date: date_jst(now), ..Default::default() };
     let mut current: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut clone_fallback = 0usize;
     for dir in crate::list_repos(cfg) {
         let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let (rc, rest) = count_routes(&dir, &name, &cfg.apiex.skip_paths);
+        if cfg.policy.fetch_clones {
+            // read-only: refresh the remote-tracking refs so @{u} is the real latest (never pull/merge)
+            let _ = crate::git(&dir, &["fetch", "--quiet"], Duration::from_secs(60));
+        }
+        let ((rc, rest), from_origin) = count_routes_origin(&dir, &name, &cfg.apiex.skip_paths);
+        if !from_origin {
+            clone_fallback += 1;
+        }
         if verbose {
-            println!("  api routes {:<34} routes={:<4} rest-like={:<4} api/admin={}", name, rc.routes, rc.rest_like, rc.api_admin);
+            println!("  api routes {:<34} routes={:<4} rest-like={:<4} api/admin={} [{}]", name, rc.routes, rc.rest_like, rc.api_admin, if from_origin { "origin" } else { "clone" });
         }
         snap.total_rest_like += rc.rest_like;
         snap.total_routes += rc.routes;
@@ -454,6 +494,7 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
     }
 
     if verbose {
+        println!("  api routes read from origin; {clone_fallback} repo(s) fell back to the clone");
         println!("  api timing: research {:.1}s (mostly waiting on search), route counting {:.1}s", t_research.as_secs_f32(), t1.elapsed().as_secs_f32());
     }
     // (c) what changed
