@@ -51,3 +51,11 @@ llm_timeout_secs = 45
 notify_url = "https://easy-web.tokyo"
 token_env = "OPEN_EASYWEB_DIST_SYNC_ADMIN_TOKEN"
 skip_paths = ["runo/repository"]       # repo/relative/dir the route counter must not enter (nested mirror)
+
+[fix]
+# 自動修正 (--fix --apply)。ビルドする機械でだけ true にする(VPS は false のまま)。
+enabled = false
+allow_push = false     # --push: 既定ブランチへ直接 push (テスト全通過時のみ)
+allow_pr = false       # --pr: 新ブランチ vc/... を push して gh で PR を作る (強制 push はしない)
+lock_refresh = []      # Cargo.lock を cargo update で互換更新するリポジトリ名 ("*" で全部)
+max_workers = 0        # 同時に検証するリポジトリ数の上限 (0 = コア数とメモリから自動, 最大8)

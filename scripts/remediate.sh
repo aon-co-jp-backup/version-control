@@ -7,6 +7,7 @@
 set -uo pipefail
 repo=$1; url=$2; sub=$3; crate=$4; kind=$5; ver=${6:-}; push=${7:-}
 [ "$ver" = "--push" ] && { push=--push; ver=; }
+mode=${VC_MODE:-none}; [ "$push" = "--push" ] && mode=main
 work="${VC_FIX_DIR:-$HOME/.vc-fix}"
 mkdir -p "$work"; cd "$work"
 rm -rf "$repo"; git clone -q "$url" "$repo" || { echo "RESULT $repo: clone失敗"; exit 2; }
@@ -15,7 +16,7 @@ lock=Cargo.lock
 [ -f "$lock" ] || { echo "RESULT $repo: $sub に Cargo.lock が無い(追跡されていない)"; exit 3; }
 
 versions=$(grep -A1 "^name = \"$crate\"\$" "$lock" | grep '^version' | sed 's/version = "\(.*\)"/\1/')
-[ -n "$versions" ] || { echo "RESULT $repo: ロックに $crate が無い(対応済み?)"; exit 0; }
+[ "$kind" = lockrefresh ] || [ -n "$versions" ] || { echo "RESULT $repo: ロックに $crate が無い(対応済み?)"; exit 0; }
 
 case "$kind" in
   bump)
@@ -38,6 +39,11 @@ case "$kind" in
     cargo update -p crypto-bigint --precise 0.7.10 >/dev/null 2>&1 || true   # 無ければ新規解決で >=0.7.10 になる
     msg="deps: rsa を rsa-rs に置き換え(RUSTSEC-2023-0071)"
     ;;
+  lockrefresh)
+    cargo update >/tmp/vc-fix-"$repo".update.log 2>&1 || { echo "RESULT $repo: cargo update 失敗"; exit 2; }
+    git diff --quiet -- "$lock" && { echo "RESULT $repo: 変更なし(互換更新はもう無い)"; exit 0; }
+    msg="deps: Cargo.lock を互換範囲で更新(cargo update)"
+    ;;
   *) echo "RESULT $repo: 不明な kind $kind"; exit 2 ;;
 esac
 
@@ -50,13 +56,40 @@ fi
 if cargo test --no-fail-fast --color never >/tmp/vc-fix-"$repo".log 2>&1; then t=PASS; else t=FAIL; fi
 tot=$(awk '/^test result:/ {p+=$4; f+=$6} END {print p" pass / "f" fail"}' /tmp/vc-fix-"$repo".log)
 [ "$t" = FAIL ] && ! grep -q "^test result" /tmp/vc-fix-"$repo".log && t=BUILD-ERROR
+# 失敗したら、更新前(この作業コピーの変更を退避)でも失敗するか確かめる。更新のせいか元からかを区別する。
+basenote=""
+if [ "$t" != PASS ]; then
+  if git stash -q; then
+    if cargo test --no-fail-fast --color never >/tmp/vc-fix-"$repo".base.log 2>&1; then basenote="(更新前は合格=更新が原因)"; else basenote="(更新前から失敗=更新は無関係)"; fi
+    git stash pop -q
+  fi
+fi
 
 git add Cargo.toml "$lock"
 git -c user.name="${GIT_AUTHOR_NAME:-version-control}" -c user.email="${GIT_AUTHOR_EMAIL:-version-control@localhost}" \
   commit -q -m "$msg" -m "version-control --fix による自動対応。検証: cargo test = $t ($tot)。パッチ前から失敗するテストがある場合は事前に比較すること。" \
   -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>" || { echo "RESULT $repo: 変更なし"; exit 0; }
-if [ "$push" = "--push" ] && [ "$t" = PASS ]; then
-  git push -q origin HEAD && echo "RESULT $repo: 修正してpush済み(test $tot)" || echo "RESULT $repo: push失敗"
+tail_msg=" 作業コピー: $PWD"
+if [ "$t" != PASS ]; then
+  echo "RESULT $repo: テスト不合格のため push しない test=$t $tot $basenote$tail_msg"
+elif [ "$mode" = main ]; then
+  git push -q origin HEAD && echo "RESULT $repo: 修正してpush済み(test $tot)$tail_msg" || echo "RESULT $repo: push失敗$tail_msg"
+elif [ "$mode" = pr ]; then
+  # 強制pushはしない。既定ブランチには直接pushせず、新しい vc/ ブランチ + PR。
+  br="vc/fix-$(date +%Y%m%d)-${crate//[^A-Za-z0-9_-]/_}"
+  base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); base=${base:-main}
+  if git push -q origin "HEAD:refs/heads/$br"; then
+    body="version-control --fix --pr による自動対応。検証: cargo test = $t ($tot)。マージ前に差分を確認してください。
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+    if url=$(gh pr create --base "$base" --head "$br" --title "$msg" --body "$body" 2>/dev/null); then
+      echo "RESULT $repo: PRを作成 $url (test $tot)$tail_msg"
+    else
+      echo "RESULT $repo: ブランチ $br をpush済み(PR作成失敗: gh を確認) test $tot$tail_msg"
+    fi
+  else
+    echo "RESULT $repo: ブランチ $br のpush失敗(既存?)$tail_msg"
+  fi
 else
-  echo "RESULT $repo: 修正をコミット済み(未push) test=$t $tot  作業コピー: $PWD"
+  echo "RESULT $repo: 修正をコミット済み(未push) test=$t $tot$tail_msg"
 fi

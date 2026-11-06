@@ -239,3 +239,34 @@ Next: (1) LINE setup and test (2) work through the first 326 major gaps per repo
 - 試験: `cargo test` 全通過(14件)。
 
 **VPS 反映(2026-11-06)**: WSL でリリースビルド → 最大 GLIBC_2.39 を確認 → scp → `target/release/version-control.bak-20261106` へバックアップ → 入れ替え → `--dry-run --no-api` で走査が動くこと(通知なし)を確認。タイマー(00/06/12/18時の:20)はそのまま。戻すには `bak-20261106` を `version-control` へ戻す。
+
+## ハードウェアに応じた自動保守の拡張(2026-11-06)
+
+### 拡張前後の範囲
+
+| 項目 | 拡張前 | 拡張後 |
+|---|---|---|
+| 勧告(RustSec)の修正版あり | `--fix --apply`: 一時clone→`cargo update --precise`→テスト→(任意で)main へ push | 同じ。加えて `--pr` で新ブランチ+PR(強制pushなし) |
+| 修正版なし | 登録済み緩和策(rsa→rsa-rs)のみ | 同じ |
+| マイナー/パッチの互換更新 | 何もしない(通知もしない) | `[fix] lock_refresh` に挙げたリポジトリの `Cargo.lock` を `cargo update`(要件の範囲内)→テスト→コミット/PR |
+| 実行資源 | 逐次・1件ずつ | `hw` が コア数・空きメモリ・GPU・aruaru-llm を検出し、リポジトリを並列(コア2つ/メモリ3GiBにつき1)で検証 |
+| 失敗時 | 結果を表示のみ | **Claude 宛の通知に回す**(既存の通知と同じメール/LINE)。更新前から失敗か、更新が原因かも判定 |
+| 変更の要約 | なし | aruaru-llm が答えれば1文の**参考**要約(判定には使わない) |
+| メジャー更新 | Claude 宛通知 | 変更なし(自動では上げない) |
+
+### 資源の使い分け(正直な範囲)
+* ビルド・テストは CPU/ディスク/メモリが律速。**GPU(open-cuda / open-directx)では速くならないので使わない**(`--hw` で検出内容は表示)。並列数だけを `hw::workers` が決める。
+* aruaru-llm: `Runtime`/`Accelerators`(`POST /aruaru_llm.v1.Llm/...`)で稼働と能力を確認し、答えれば変更の要約(`Generate`)を添える。最終判定は常にテスト結果。
+* open-cpu / open-cuda / open-directx は、`[[maintainers]]` の `health_url` が答えれば「稼働」と表示するだけ(それらに処理を委ねる口は、各ツールがAPIを公開してから)。
+
+### 使い方
+```bash
+version-control --hw                                   # 検出結果と割り振りを表示(走査なし)
+version-control --dry-run --no-fetch --fix             # 計画のみ(書き込みなし)
+version-control --fix --apply [--only repo] [--pr|--push]
+```
+安全策: 既定は計画のみ / `[fix] enabled=true` の機械だけ / `--push`・`--pr` は `allow_push`・`allow_pr` が無ければ無視されローカルコミットまで / 強制push禁止 / テスト不合格は push しない / 作業は新規cloneで、手元(VPSを含む)の作業ツリーは**触らない**(未コミット変更があっても影響なし) / 秘密は出さない(`gh` は自身の認証を使う)。
+
+### 確認済み・未確認
+* WSL(32コア・GT 730)で `--hw`・計画・`--apply`(RS-JSON の lock 更新→テスト)まで実機確認。RS-JSON は更新前から examples のビルドが通らず(`fast` 機能なし)、これを「更新は無関係の失敗」として Claude 宛に回すことを確認。
+* **未確認**: 実際の `--pr`(gh での PR 作成)と `--push` の実往復、aruaru-llm が起動している状態での要約(WSLでは未起動)。

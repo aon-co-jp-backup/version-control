@@ -190,3 +190,6 @@ The procedure is in [`PORTING.md`](PORTING.md); the **resume message is at its e
 - 試験: `cargo test` 全通過(14件)。
 
 **VPS 反映(2026-11-06)**: WSL でリリースビルド → 最大 GLIBC_2.39 を確認 → scp → `target/release/version-control.bak-20261106` へバックアップ → 入れ替え → `--dry-run --no-api` で走査が動くこと(通知なし)を確認。タイマー(00/06/12/18時の:20)はそのまま。戻すには `bak-20261106` を `version-control` へ戻す。
+
+## 自動保守の拡張(2026-11-06)
+`src/hw.rs`(ハード検出・並列数・LLM要約)、`src/fix.rs`(`LockRefresh`・`Mode`・並列`apply`・`is_failure`)、`scripts/remediate.sh`(`VC_MODE=none|main|pr`、更新前テストとの比較)。詳細と表は README の同名節。失敗は Claude 宛通知に合流する。GPU は cargo を速くしないので使わない(検出表示のみ)。

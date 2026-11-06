@@ -203,11 +203,20 @@ impl Config {
 }
 
 /// `[fix]`: whether `--fix --apply` may run here at all.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Clone)]
 pub struct Fix {
     #[serde(default)]
     pub enabled: bool,
     /// Allow `--push` (otherwise changes stay as local commits in the work folder).
     #[serde(default)]
     pub allow_push: bool,
+    /// Allow `--pr`: push a new branch `vc/...` (never force, never the default branch) and open a pull request with `gh`.
+    #[serde(default)]
+    pub allow_pr: bool,
+    /// Repositories (folder names) whose lock file gets a semver-compatible `cargo update`. `["*"]` = all.
+    #[serde(default)]
+    pub lock_refresh: Vec<String>,
+    /// Upper bound of repositories verified in parallel (0 = decided from cores and memory).
+    #[serde(default)]
+    pub max_workers: usize,
 }

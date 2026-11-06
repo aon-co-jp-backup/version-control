@@ -5,6 +5,7 @@ mod advisory;
 mod apiex;
 mod config;
 mod fix;
+mod hw;
 mod latest;
 mod notify;
 mod report;
@@ -43,11 +44,13 @@ struct Args {
     fix: bool,
     apply: bool,
     push: bool,
+    pr: bool,
+    hw: bool,
     only: Option<String>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, only: None };
+    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, only: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -62,6 +65,8 @@ fn parse_args() -> Args {
             "--fix" => a.fix = true,
             "--apply" => a.apply = true,
             "--push" => a.push = true,
+            "--pr" => a.pr = true,
+            "--hw" => a.hw = true,
             "--only" => a.only = it.next(),
             "-h" | "--help" => {
                 println!("version-control [--config FILE] [--dry-run] [--force] [--no-fetch] [--test-notify] [--demo]\n  --dry-run      scan and write the dashboard, send nothing\n  --force        announce even if the message was already sent\n  --test-notify  send a short test message by e-mail and LINE\n  --no-api       skip the API exception patrol
@@ -105,6 +110,10 @@ fn main() -> Result<()> {
 
     let maintainers = check_maintainers(&cfg);
     let maintainer_alive = maintainers.iter().any(|m| m.alive);
+    if args.hw {
+        print!("{}", hw::render(&hw::detect(&cfg, &maintainers), &cfg.fix));
+        return Ok(());
+    }
     println!("maintainers: {}", maintainers.iter().map(|m| format!("{}={}", m.name, if m.alive { "up" } else { "DOWN" })).collect::<Vec<_>>().join(", "));
 
     let advisories = if cfg.advisory.enabled {
@@ -148,8 +157,9 @@ fn main() -> Result<()> {
         repos.push(rs);
     }
     state.cache = std::mem::take(&mut registry.cache);
+    let mut fix_failures: Vec<String> = Vec::new();
     if args.fix {
-        run_fix(&repos, &cfg, &args);
+        fix_failures = run_fix(&repos, &cfg, &args, &maintainers);
     }
 
     // Dashboard data: private repositories are left out entirely.
@@ -175,6 +185,11 @@ fn main() -> Result<()> {
         }
     }
 
+    if !fix_failures.is_empty() {
+        blocks.push(format!("{root} の自動修正(--fix)が失敗または未対応でした。原因を調べて直してください:
+{}", fix_failures.iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("
+")));
+    }
     if blocks.is_empty() {
         println!("nothing new to announce");
     } else if args.dry_run {
@@ -508,10 +523,12 @@ fn write_demo(dir: &Path) -> Result<()> {
 }
 
 /// `--fix`: print the plan for every open vulnerability; with `--apply` (and `[fix] enabled`) carry it out in fresh clones.
-fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args) {
+fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args, maintainers: &[MaintainerStatus]) -> Vec<String> {
     let mut plans = Vec::new();
     for rs in repos.iter().filter(|r| args.only.as_ref().map_or(true, |o| &r.name == o)) {
-        plans.extend(fix::plan(&cfg.root.join(&rs.name), rs, cfg));
+        let dir = cfg.root.join(&rs.name);
+        plans.extend(fix::plan(&dir, rs, cfg));
+        plans.extend(fix::plan_lock_refresh(&dir, &rs.name, &cfg.fix));
     }
     println!("--- fix plan ({} item(s)) ---", plans.len());
     for p in &plans {
@@ -519,17 +536,30 @@ fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args) {
     }
     if !args.apply {
         println!("(計画のみ。実行するには --fix --apply。[fix] enabled = true の機械でだけ動く)");
-        return;
+        return Vec::new();
     }
     if !cfg.fix.enabled {
         println!("[fix] enabled = false のため実行しません(この機械はビルドしない設定)。");
-        return;
+        return Vec::new();
     }
-    let push = args.push && cfg.fix.allow_push;
-    if args.push && !cfg.fix.allow_push {
-        println!("--push は [fix] allow_push = false のため無視(ローカルコミットまで)。");
+    let mode = fix::resolve_mode(args.push, args.pr, &cfg.fix);
+    if (args.push || args.pr) && mode == fix::Mode::Local {
+        println!("--push/--pr は [fix] allow_push / allow_pr が false のため無視(ローカルコミットまで)。");
     }
-    for line in fix::apply(&plans, push, Path::new("scripts/remediate.sh")) {
+    let profile = hw::detect(cfg, maintainers);
+    print!("{}", hw::render(&profile, &cfg.fix));
+    let workers = hw::workers(&profile, &cfg.fix);
+    let results = fix::apply(&plans, mode, Path::new("scripts/remediate.sh"), workers, hw::jobs_per_worker(&profile, workers));
+    let mut failures = Vec::new();
+    for line in &results {
         println!("{line}");
+        if fix::is_failure(line) {
+            failures.push(line.clone());
+        } else if profile.llm_up {
+            if let Some(note) = fix::work_copy(line).and_then(|w| hw::summarize(cfg, w)) {
+                println!("  参考(aruaru-llm・判定には使わない): {note}");
+            }
+        }
     }
+    failures
 }
