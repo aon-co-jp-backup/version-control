@@ -281,7 +281,7 @@ fn check_maintainers(cfg: &Config) -> Vec<MaintainerStatus> {
     cfg.maintainers
         .iter()
         .map(|m| {
-            let alive = !m.health_url.is_empty() && http.as_ref().is_some_and(|h| h.get(&m.health_url).send().map(|r| r.status().is_success()).unwrap_or(false));
+            let alive = !m.health_url.is_empty() && http.as_ref().is_some_and(|h| probe(h, &m.health_url));
             MaintainerStatus { name: m.name.clone(), alive }
         })
         .collect()
@@ -562,4 +562,26 @@ fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args, maintainers: &[Maint
         }
     }
     failures
+}
+
+/// A Connect method URL (`/<package>.v1.<Service>/<Method>`) must be called with POST and a JSON body; anything else is a plain GET.
+fn is_connect_url(url: &str) -> bool {
+    url.rsplit('/').nth(1).is_some_and(|svc| svc.contains(".v") && svc.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))
+}
+
+fn probe(h: &reqwest::blocking::Client, url: &str) -> bool {
+    let r = if is_connect_url(url) { h.post(url).json(&serde_json::json!({})).send() } else { h.get(url).send() };
+    r.map(|r| r.status().is_success()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::is_connect_url;
+
+    #[test]
+    fn connect_urls_are_recognised() {
+        assert!(is_connect_url("http://127.0.0.1:4600/aruaru_llm.v1.Llm/Accelerators"));
+        assert!(!is_connect_url("http://127.0.0.1:4600/v1/accelerators"));
+        assert!(!is_connect_url("http://127.0.0.1:4600/health"));
+    }
 }

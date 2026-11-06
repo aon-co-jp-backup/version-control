@@ -13,7 +13,7 @@ exclude = ["_anon", "_gen", "tmp", "var", "open-media-test", "make-disk-target-a
 # Each maintainer is probed with a GET on health_url; an empty url counts as "not running".
 [[maintainers]]
 name = "aruaru-llm"
-health_url = "http://127.0.0.1:4600/v1/accelerators"
+health_url = "http://127.0.0.1:4600/aruaru_llm.v1.Llm/Accelerators"   # Connect: POST {}
 [[maintainers]]
 name = "open-cuda"
 health_url = ""
