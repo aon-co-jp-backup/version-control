@@ -59,3 +59,14 @@ allow_push = false     # --push: 既定ブランチへ直接 push (テスト全�
 allow_pr = false       # --pr: 新ブランチ vc/... を push して gh で PR を作る (強制 push はしない)
 lock_refresh = []      # Cargo.lock を cargo update で互換更新するリポジトリ名 ("*" で全部)
 max_workers = 0        # 同時に検証するリポジトリ数の上限 (0 = コア数とメモリから自動, 最大8)
+
+[autoloop]
+# `version-control --loop --only REPO [--goal "..."] [--push]`: Claude Code Desktop-style repeat cycle
+# (investigate -> confirm -> develop -> improve -> test -> debug) run in a fresh clone. Off by default;
+# enable only on a machine that may build and run the agent (never the production VPS).
+enabled = false
+max_cycles = 4
+agent_command = ["claude", "-p", "--permission-mode", "acceptEdits"]   # prompt on stdin
+# test_command = ["cargo", "test", "--no-fail-fast"]   # empty = guess from Cargo.toml / package.json / pytest
+work_dir = ".vc-loop"
+allow_push = false   # --push is ignored unless true

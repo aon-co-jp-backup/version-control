@@ -193,3 +193,25 @@ The procedure is in [`PORTING.md`](PORTING.md); the **resume message is at its e
 
 ## 自動保守の拡張(2026-11-06)
 `src/hw.rs`(ハード検出・並列数・LLM要約)、`src/fix.rs`(`LockRefresh`・`Mode`・並列`apply`・`is_failure`)、`scripts/remediate.sh`(`VC_MODE=none|main|pr`、更新前テストとの比較)。詳細と表は README の同名節。失敗は Claude 宛通知に合流する。GPU は cargo を速くしないので使わない(検出表示のみ)。
+
+## 自動反復開発 `--loop`(Claude Code Desktop 風)/ Automatic repeat development (2026-11-07)
+
+### 日本語
+自動保守で足りないものを、メッセージに貼るだけでなく**無人で数回まわして、ある程度の完成度まで進める**機能。
+`version-control --loop --only <リポジトリ> [--goal "目的"] [--push]`(目的の既定はそのリポジトリ向けの Claude 用メッセージ)。
+- 1周 = 調査 → 確認 → 試作・開発 → 改善 → テスト → デバッグ。担当は `claude -p`(設定 `agent_command`、プロンプトは標準入力)。
+- **テストは本ツール自身が実行**(`Cargo.toml`→`cargo test`、`package.json`→`npm test`、pytest。`test_command` で上書き)。失敗の末尾を次の周へ渡す。
+- 終了は「テスト成功 かつ 担当の最終行が `LOOP_DONE`」、または `max_cycles`(既定4)。未完了なら**コミットせず**作業フォルダ(`work_dir`)に残す。
+- 作業は origin の**新規 clone** だけで行い、手元の作業ツリーは触らない。成功時のみローカルコミット。push は `--push` かつ `[autoloop] allow_push = true` のときだけ。
+- 既定は**無効**(`[autoloop] enabled = false`)。本番 VPS では動かさない(ビルドする機械でだけ)。
+- 正直な注意: 担当の判断はモデル任せで、完成度の保証ではない。`LOOP_DONE` とテスト成功は必要条件にすぎず、結果は人が見る。単体テストはループ制御(`src/autoloop.rs`)のみで、実際の `claude` 呼び出しの通し実行は未検証。
+
+### English
+Beyond pasting a message, this runs **unattended repeat cycles until the work reaches a reasonable level of completion**.
+`version-control --loop --only <repo> [--goal "..."] [--push]` (the default goal is the repository's Claude message).
+- One cycle = investigate → confirm → prototype/develop → improve → test → debug, performed by `claude -p` (`agent_command`, prompt on stdin).
+- **The tool runs the tests itself** (`cargo test` / `npm test` / pytest, override with `test_command`) and feeds the failure tail into the next cycle.
+- It stops when tests pass AND the agent's last line is `LOOP_DONE`, or after `max_cycles` (default 4). An unfinished run is **not committed** and stays in `work_dir`.
+- Work happens only in a fresh clone of origin; the working tree is untouched. Local commit on success only; push needs `--push` and `[autoloop] allow_push = true`.
+- **Off by default** (`[autoloop] enabled = false`); never run it on the production VPS.
+- Honest caveat: the agent's judgement is the model's; `LOOP_DONE` plus green tests is necessary, not sufficient — review the result. Only the loop control (`src/autoloop.rs`) is unit-tested; an end-to-end run with the real `claude` has not been verified.

@@ -24,6 +24,9 @@ pub struct Config {
     /// Automatic remediation (`--fix`). Off by default; turn on only on a machine that may build.
     #[serde(default)]
     pub fix: Fix,
+    /// Unattended investigate -> develop -> test -> debug cycles (`--loop`). Off by default.
+    #[serde(default)]
+    pub autoloop: AutoLoop,
     /// Folder the dashboard (`index.html` + `status.json`) is written to.
     #[serde(default = "default_site")]
     pub site_dir: PathBuf,
@@ -219,4 +222,39 @@ pub struct Fix {
     /// Upper bound of repositories verified in parallel (0 = decided from cores and memory).
     #[serde(default)]
     pub max_workers: usize,
+}
+
+/// `[autoloop]`: the repeat cycle behind `--loop`.
+#[derive(Debug, Deserialize)]
+pub struct AutoLoop {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_cycles")]
+    pub max_cycles: usize,
+    /// Program + args; the prompt is written to its stdin.
+    #[serde(default = "default_agent")]
+    pub agent_command: Vec<String>,
+    /// Empty = guess (Cargo.toml -> cargo test, package.json -> npm test, pytest).
+    #[serde(default)]
+    pub test_command: Vec<String>,
+    #[serde(default = "default_loop_dir")]
+    pub work_dir: PathBuf,
+    #[serde(default)]
+    pub allow_push: bool,
+}
+
+impl Default for AutoLoop {
+    fn default() -> Self {
+        Self { enabled: false, max_cycles: default_cycles(), agent_command: default_agent(), test_command: Vec::new(), work_dir: default_loop_dir(), allow_push: false }
+    }
+}
+
+fn default_cycles() -> usize {
+    4
+}
+fn default_agent() -> Vec<String> {
+    vec!["claude".into(), "-p".into(), "--permission-mode".into(), "acceptEdits".into()]
+}
+fn default_loop_dir() -> PathBuf {
+    PathBuf::from(".vc-loop")
 }

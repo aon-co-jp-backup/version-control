@@ -7,6 +7,7 @@ mod config;
 mod fix;
 mod hw;
 mod latest;
+mod autoloop;
 mod notify;
 mod report;
 mod scan;
@@ -33,6 +34,8 @@ struct State {
 }
 
 struct Args {
+    loop_run: bool,
+    goal: Option<String>,
     config: PathBuf,
     dry_run: bool,
     force: bool,
@@ -50,7 +53,7 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, only: None };
+    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, only: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -68,6 +71,8 @@ fn parse_args() -> Args {
             "--pr" => a.pr = true,
             "--hw" => a.hw = true,
             "--only" => a.only = it.next(),
+            "--loop" => a.loop_run = true,
+            "--goal" => a.goal = it.next(),
             "-h" | "--help" => {
                 println!("version-control [--config FILE] [--dry-run] [--force] [--no-fetch] [--test-notify] [--demo]\n  --dry-run      scan and write the dashboard, send nothing\n  --force        announce even if the message was already sent\n  --test-notify  send a short test message by e-mail and LINE\n  --no-api       skip the API exception patrol
   --api-only     run only the API exception patrol (ledger, route counts, notice)
@@ -160,6 +165,9 @@ fn main() -> Result<()> {
     let mut fix_failures: Vec<String> = Vec::new();
     if args.fix {
         fix_failures = run_fix(&repos, &cfg, &args, &maintainers);
+    }
+    if args.loop_run {
+        run_loop(&repos, &cfg, &args);
     }
 
     // Dashboard data: private repositories are left out entirely.
@@ -588,5 +596,35 @@ mod probe_tests {
         assert!(is_connect_url("http://127.0.0.1:4600/aruaru_llm.v1.Llm/Accelerators"));
         assert!(!is_connect_url("http://127.0.0.1:4600/v1/accelerators"));
         assert!(!is_connect_url("http://127.0.0.1:4600/health"));
+    }
+}
+
+/// `--loop --only REPO [--goal TEXT] [--push]`: investigate/develop/test/debug cycles in a fresh clone.
+fn run_loop(repos: &[RepoStatus], cfg: &Config, args: &Args) {
+    let Some(only) = &args.only else {
+        println!("--loop needs --only <repository> (one repository per run).");
+        return;
+    };
+    // The scan result is optional: a repository with nothing to report still can be worked on, with an explicit --goal.
+    let goal = match (&args.goal, repos.iter().find(|r| &r.name == only)) {
+        (Some(g), _) => g.clone(),
+        (None, Some(rs)) => report::claude_prompt(&cfg.root.to_string_lossy(), rs, cfg.policy.max_items_per_message),
+        (None, None) => {
+            println!("{only}: no scan result to build a goal from; pass --goal.");
+            return;
+        }
+    };
+    let origin = git(&cfg.root.join(only), &["remote", "get-url", "origin"], Duration::from_secs(10)).unwrap_or_default().trim().to_string();
+    if origin.is_empty() {
+        println!("{only} has no origin; nothing to clone.");
+        return;
+    }
+    if !cfg.autoloop.enabled {
+        println!("[autoloop] enabled = false: would run up to {} cycle(s) on {only} (goal: {} chars).", cfg.autoloop.max_cycles, goal.len());
+        return;
+    }
+    match autoloop::run(&cfg.autoloop, only, &origin, &goal, args.push) {
+        Ok(line) => println!("{line}"),
+        Err(e) => println!("RESULT {only}: loop error: {e:#}"),
     }
 }
