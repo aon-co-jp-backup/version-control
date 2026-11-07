@@ -75,7 +75,10 @@ fn run_agent(cfg: &AutoLoop, dir: &Path, prompt: &str) -> Result<String> {
     child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?.write_all(prompt.as_bytes())?;
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        return Err(anyhow!("agent exited with {}: {}", out.status, tail(&String::from_utf8_lossy(&out.stderr), 5)));
+        // Claude Code prints errors such as "Not logged in" on stdout, so show both.
+        let msg = format!("{}
+{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        return Err(anyhow!("agent exited with {}: {}", out.status, tail(msg.trim(), 5)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }

@@ -169,6 +169,9 @@ fn main() -> Result<()> {
     if args.loop_run {
         run_loop(&repos, &cfg, &args);
     }
+    if args.loop_run {
+        run_loop(&repos, &cfg, &args);
+    }
 
     // Dashboard data: private repositories are left out entirely.
     let hidden = repos.iter().filter(|r| cfg.private.contains(&r.name)).count();
