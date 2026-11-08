@@ -122,6 +122,9 @@ pub struct RouteCount {
     pub rest_like: usize,
     /// of those, the ones containing /api/ or /admin/
     pub api_admin: usize,
+    /// distinct non-Connect, non-exception paths that do not look like an API (plain browser pages / media); not counted as REST-like
+    #[serde(default)]
+    pub pages: usize,
 }
 
 const SKIP_DIRS: [&str; 18] = ["target", "node_modules", ".git", "vendor", "advisory-db", "dist", ".deps", ".vscode-test", ".vscode-test-web", "tests", "examples", "benches", "site", "clients", "mock", "mocks", "fixtures", "testdata"];
@@ -134,6 +137,13 @@ fn re(p: &str) -> Regex {
 pub fn is_connect_path(p: &str) -> bool {
     let first = p.trim_start_matches('/').split('/').next().unwrap_or("");
     first.contains('.') && first.rsplit('.').next().is_some_and(|s| s.chars().next().is_some_and(|c| c.is_ascii_uppercase())) && p.trim_start_matches('/').matches('/').count() >= 1
+}
+
+/// REST-shaped paths: under /api/ or /admin/, versioned (`/v1/`), or addressing a resource by a path parameter (`/:id`, `/{id}`).
+/// A bare page or media path (`/help`, `/video/x.mp4`) is not an API, so it is counted apart as `pages`.
+pub fn is_api_like(p: &str) -> bool {
+    let l = p.to_ascii_lowercase();
+    l.contains("/api/") || l.starts_with("/api") && l.len() == 4 || l.contains("/admin/") || l.contains("/rest/") || l.contains("/:") || l.contains("/{") || Regex::new(r"/v\d+(/|$)").is_ok_and(|r| r.is_match(&l)) || l.contains("/*")
 }
 
 /// Paths whose shape somebody else's standard fixes (see exceptions.toml) or that are plain browser assets.
@@ -161,30 +171,91 @@ fn strip_test_mods(text: &str, start: &Regex) -> String {
     let mut pos = 0;
     while let Some(m) = start.find_at(text, pos) {
         out.push_str(&text[pos..m.start()]);
-        // A top-level (column 0) test module is by convention the last item of the file. Brace matching is thrown off by
-        // braces inside string literals (e.g. JSON in test fixtures), so drop everything from there to the end instead.
-        if m.start() == 0 || text.as_bytes()[m.start() - 1] == b'\n' {
-            return out;
-        }
-        let mut depth = 1usize;
-        let mut end = text.len();
-        for (i, c) in text[m.end()..].char_indices() {
-            match c {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = m.end() + i + 1;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        pos = end;
+        pos = matching_brace_end(text, m.end());
     }
     out.push_str(&text[pos..]);
     out
+}
+
+/// Byte offset just after the `}` that closes a block whose `{` is already consumed (`from` = just past it).
+/// Braces inside string literals (normal and raw), char literals and comments are ignored, so JSON fixtures in tests don't skew it.
+fn matching_brace_end(text: &str, from: usize) -> usize {
+    let b = text.as_bytes();
+    let mut i = from;
+    let mut depth = 1usize;
+    while i < b.len() {
+        match b[i] {
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+            }
+            b'r' if (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_')) && matches!(b.get(i + 1), Some(b'"') | Some(b'#')) => {
+                let mut j = i + 1;
+                let mut hashes = 0;
+                while b.get(j) == Some(&b'#') {
+                    hashes += 1;
+                    j += 1;
+                }
+                if b.get(j) == Some(&b'"') {
+                    j += 1;
+                    loop {
+                        if j >= b.len() {
+                            return b.len();
+                        }
+                        if b[j] == b'"' && (0..hashes).all(|k| b.get(j + 1 + k) == Some(&b'#')) {
+                            j += 1 + hashes;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    i = j;
+                } else {
+                    i += 1;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'\'' => {
+                // char literal ('x', '\n', '{') vs lifetime ('a): only skip when a closing quote follows closely
+                if b.get(i + 1) == Some(&b'\\') && b.get(i + 3) == Some(&b'\'') {
+                    i += 4;
+                } else if b.get(i + 2) == Some(&b'\'') {
+                    i += 3;
+                } else {
+                    i += 1;
+                }
+            }
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' => {
+                depth -= 1;
+                i += 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    b.len()
 }
 
 fn is_test_file(name: &str) -> bool {
@@ -259,12 +330,12 @@ pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (Rout
     let mut bridged: BTreeSet<String> = BTreeSet::new();
     for f in files {
         let Ok(text) = std::fs::read_to_string(&f) else { continue };
-        let text = strip_test_mods(&text, &r_test_mod);
-        let text = text.as_str();
         // acme.rs: the ACME protocol's own paths (RFC 8555; a documented exception in exceptions.toml), incl. its mock CA.
         let is_bridge = text.contains("connect::endpoint(")
             || text.contains("fn connect_route(")
             || f.file_name().is_some_and(|n| n == "acme.rs");
+        let text = strip_test_mods(&text, &r_test_mod);
+        let text = text.as_str();
         for r in [&r_route, &r_hyper, &r_str] {
             for c in r.captures_iter(text) {
                 paths.insert(c[1].to_string());
@@ -278,6 +349,10 @@ pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (Rout
     let mut rest = BTreeSet::new();
     for p in &paths {
         if is_connect_path(p) || is_exception_path(p) || bridged.contains(p) {
+            continue;
+        }
+        if !is_api_like(p) {
+            rc.pages += 1;
             continue;
         }
         rc.rest_like += 1;
@@ -575,7 +650,7 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
             clone_fallback += 1;
         }
         if verbose {
-            println!("  api routes {:<34} routes={:<4} rest-like={:<4} api/admin={} [{}]", name, rc.routes, rc.rest_like, rc.api_admin, if from_origin { "origin" } else { "clone" });
+            println!("  api routes {:<34} routes={:<4} rest-like={:<4} api/admin={} pages={} [{}]", name, rc.routes, rc.rest_like, rc.api_admin, rc.pages, if from_origin { "origin" } else { "clone" });
         }
         snap.total_rest_like += rc.rest_like;
         snap.total_routes += rc.routes;
@@ -741,7 +816,7 @@ pub fn demo_json(cfg: &Config, now: u64) -> Result<Value> {
     let results: Vec<(Exception, Research)> = ledger.exceptions.iter().cloned().map(|e| (e, Research { search_ok: true, ..Default::default() })).collect();
     let mut snap = Snapshot { t: now, date: date_jst(now), ..Default::default() };
     for (n, r, l) in [("sample-web", 14usize, 9usize), ("sample-tool", 6, 2), ("sample-lib", 3, 0)] {
-        snap.repos.insert(n.to_string(), RouteCount { routes: r, rest_like: l, api_admin: l / 2 });
+        snap.repos.insert(n.to_string(), RouteCount { routes: r, rest_like: l, api_admin: l / 2, ..Default::default() });
         snap.total_rest_like += l;
         snap.total_routes += r;
     }
@@ -838,11 +913,21 @@ mod tests {
     }
 
     #[test]
-    fn top_level_test_module_is_dropped_even_with_braces_in_strings() {
+    fn test_module_with_braces_in_strings_is_dropped_but_code_after_it_stays() {
         let r = re(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{");
-        let src = "fn a(){ app.route(\"/real\", g); }\n#[cfg(test)]\nmod tests {\n  fn t(){ let s = \"}}\"; app.route(\"/api/in-test\", g); }\n}\nfn after(){ app.route(\"/also-test\", g); }\n";
+        let src = "fn a(){ app.route(\"/real\", g); }\n#[cfg(test)]\nmod tests {\n  fn t(){ let s = \"}}\"; app.route(\"/api/in-test\", g); }\n}\nfn after(){ app.route(\"/after-real\", g); }\n";
         let out = strip_test_mods(src, &r);
-        assert!(out.contains("/real") && !out.contains("/api/in-test") && !out.contains("/also-test"), "{out}");
+        assert!(out.contains("/real") && !out.contains("/api/in-test") && out.contains("/after-real"), "{out}");
+    }
+
+    #[test]
+    fn plain_pages_are_not_rest_like() {
+        for p in ["/help", "/k", "/video/x.mp4", "/aruaru-lady"] {
+            assert!(!is_api_like(p), "{p}");
+        }
+        for p in ["/api/users", "/admin/stats", "/v1/items", "/items/:id", "/repos/{name}"] {
+            assert!(is_api_like(p), "{p}");
+        }
     }
 
     #[test]
