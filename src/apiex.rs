@@ -135,8 +135,9 @@ fn re(p: &str) -> Regex {
 
 /// Connect paths look like `/open_easy_web.admin.v1.Notify/Send`: a dotted package, then `Service/Method`.
 pub fn is_connect_path(p: &str) -> bool {
-    let first = p.trim_start_matches('/').split('/').next().unwrap_or("");
-    first.contains('.') && first.rsplit('.').next().is_some_and(|s| s.chars().next().is_some_and(|c| c.is_ascii_uppercase())) && p.trim_start_matches('/').matches('/').count() >= 1
+    // `<dotted.package>.<Service>/<Method>` as any pair of adjacent segments (a mount prefix such as `/ime/api/` may come first)
+    let segs: Vec<&str> = p.trim_start_matches('/').split('/').collect();
+    segs.windows(2).any(|w| w[0].contains('.') && w[0].rsplit('.').next().is_some_and(|s| s.chars().next().is_some_and(|c| c.is_ascii_uppercase())) && !w[1].is_empty())
 }
 
 /// REST-shaped paths: under /api/ or /admin/, versioned (`/v1/`), or addressing a resource by a path parameter (`/:id`, `/{id}`).
@@ -154,6 +155,10 @@ pub fn is_exception_path(p: &str) -> bool {
         || l.starts_with("/scim/")
         || l == "/mcp"
         || l.starts_with("/demo")
+        || l == "/*path" // catch-all fallback (404 page / git smart HTTP / static), not an API route
+        || l.starts_with("/page/") // content pages
+        || l.starts_with("/ranking/")
+        || l.contains("/fonts/") // font file downloads (assets)
         || l.contains("health")
         || l.contains("webhook")
         || l.contains("callback")
