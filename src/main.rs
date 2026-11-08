@@ -410,7 +410,12 @@ fn scan_repo(dir: &Path, scan_dir: &Path, cfg: &Config, reg: &mut latest::Regist
                 continue;
             }
         };
+        let has_windows = deps.iter().any(|x| x.name == "windows");
         for d in deps {
+            // windows-core is versioned on its own line (0.100) but must match the `windows` crate's line (0.62) used in the same manifest.
+            if scan::follows_windows(&d.name, has_windows) {
+                continue;
+            }
             if seen.insert((d.eco.label().to_string(), d.name.clone(), d.req.clone()), ()).is_some() {
                 continue;
             }

@@ -157,6 +157,12 @@ pub fn parse_ver(s: &str) -> Option<Ver> {
     }
 }
 
+/// `windows-core` has its own version line (e.g. 0.100) that does not match the `windows` crate (0.62);
+/// it has to follow the `windows` dependency in the same manifest, so it must not be reported on its own.
+pub fn follows_windows(name: &str, manifest_has_windows: bool) -> bool {
+    manifest_has_windows && name == "windows-core"
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gap {
     Current,
@@ -222,6 +228,13 @@ mod tests {
         assert_eq!(gap("0.12", "0.12.5"), Gap::Current);
         assert_eq!(gap("^7.4 || ^8.0", "8.3.1"), Gap::Current);
         assert_eq!(gap(">=1.0 <2.0", "3.0.0"), Gap::Major);
+    }
+
+    #[test]
+    fn windows_core_follows_windows() {
+        assert!(follows_windows("windows-core", true));
+        assert!(!follows_windows("windows-core", false));
+        assert!(!follows_windows("serde", true));
     }
 
     #[test]
