@@ -303,3 +303,5 @@ Beyond pasting a message, this runs **unattended repeat cycles until the work re
 
 ## Addendum 2026-11-08 (English)
 Added GraphiQL/docs UI, SCIM, GitHub webhook, git smart HTTP and the ACME test mock to the ledger. The route counter now skips test/example/client/mock code, merges clones sharing an origin (`merged_aliases`), keeps reading origin, and reports clone lag separately (`clone_lag`).
+
+**VPS 反映(2026-11-08)**: WSL でリリースビルド(最大 GLIBC_2.39、VPS は 2.39)→scp→`target/release/version-control.bak-20261108` と `state.json.bak-20261108` に退避→入れ替え→`--api-only --dry-run --no-fetch` で確認(通知なし・サービス/タイマーは active のまま)。集計(REST風ルート): 反映前の最終記録 251本(総ルート398)→反映後 **179本**(総ルート318)。名寄せ: atr-base・atr-sonic→audiocafe-tokyo-rust、ows-base・ows-stream→open-web-server。クローンの遅れ30件は別項目。戻すには `bak-20261108` を戻す。注意: 次回のタイマー実行で「前日比」が大きく減って見える(実際の移行ではなく数え方の変更)。
