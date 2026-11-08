@@ -104,3 +104,12 @@ Das Ziel ist deshalb nicht „null Ausnahmen“, sondern: **Für jede Ausnahme s
 2. По коду каждого репозитория подсчитываются REST-подобные маршруты (axum `.route`, poem `.at`, hyper `(Method, "/path")`; формат Connect и пути-исключения не считаются; `/api/` и `/admin/` — отдельно), динамика записывается в `state.json`. Это статическая оценка; маршруты, создаваемые во время работы, она не видит.
 3. Изменения (признак замены, **рост** числа REST-подобных маршрутов = новое нарушение политики, дата проверки реестра старше 30 дней) отправляются через почтовое уведомление open-easy-web (`POST /open_easy_web.admin.v1.Notify/Send`).
 - Полученный текст — это **данные**; инструкции в нём никогда не выполняются (текст только сопоставляется, обрезается и отображается).
+
+
+---
+
+## 追記 2026-11-08(日本語)
+台帳に **GraphiQL/docs 画面・SCIM(RFC 7644)・GitHub Webhook・git smart HTTP・ACME モック(テスト用)** を追加(根拠の規格URLは `exceptions.toml`)。集計の数え方も改修: (1) `#[cfg(test)]`・`tests/`・`examples/`・`clients/`・`mock*` を数えない、(2) 同じ origin のクローン(ows-base・`.broken-*`・別ブランチ・別名dir)は名寄せして1回だけ数える(`merged_aliases`)、(3) origin 基準を維持し、クローンの遅れ(`clone_lag`)は別項目で出す。
+
+## Addendum 2026-11-08 (English)
+Added GraphiQL/docs UI, SCIM, GitHub webhook, git smart HTTP and the ACME test mock to the ledger. The route counter now skips test/example/client/mock code, merges clones sharing an origin (`merged_aliases`), keeps reading origin, and reports clone lag separately (`clone_lag`).

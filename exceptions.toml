@@ -9,7 +9,7 @@
 # [[exception.use]] は「そのリポジトリのコードを実際に grep で確認した場所」。推測は書かない。
 # search_queries: 巡回(aruaru-search)の検索語。signal_terms: 結果の題名・抜粋にこれが含まれる「新しい」ものを置き換えの兆候として知らせる。
 
-checked = "2026-11-04"
+checked = "2026-11-08"
 
 [[exception]]
 id = "acme-http01"
@@ -202,3 +202,78 @@ where = "crates/open-web-server-gateway/src/handlers/web_vhost.rs:62, 112(serve_
 [[exception.use]]
 repo = "runo.tokyo"
 where = "src/lib.rs:577, 589(serve_static_file)"
+
+[[exception]]
+id = "graphiql-docs-ui"
+name = "GraphiQL / API ドキュメント画面"
+name_en = "GraphiQL / API docs UI pages"
+standard = "GraphiQL(GraphQL 財団の IDE)/ OpenAPI ドキュメント UI(ブラウザが GET で開く HTML)"
+standard_urls = ["https://github.com/graphql/graphiql", "https://spec.openapis.org/oas/latest.html"]
+replaceability = "impossible"
+replacement = "ブラウザが開く HTML 画面そのもの(API ではない)。画面が裏で呼ぶ先はすでに GraphQL(読み取り専用)や Connect。"
+next_step = "画面以外のルートを足さない。"
+search_queries = []
+signal_terms = []
+[[exception.use]]
+repo = "RPoem"
+where = "GraphiQL / docs の画面ルート(確認済み 2026-11-08)"
+
+[[exception]]
+id = "scim"
+name = "SCIM プロビジョニング"
+name_en = "SCIM provisioning"
+standard = "RFC 7644 (SCIM Protocol) / RFC 7643"
+standard_urls = ["https://www.rfc-editor.org/rfc/rfc7644", "https://www.rfc-editor.org/rfc/rfc7643"]
+replaceability = "impossible"
+replacement = "IdP(Okta・Entra ID 等)が /Users /Groups へ REST で来る。呼ぶ側が IdP なので形を変えられない。"
+next_step = "SCIM 以外の REST を同居させない。"
+search_queries = []
+signal_terms = []
+[[exception.use]]
+repo = "RPoem"
+where = "SCIM ルート(確認済み 2026-11-08)"
+
+[[exception]]
+id = "github-webhook"
+name = "GitHub Webhook 受信"
+name_en = "GitHub webhook receiver"
+standard = "GitHub Webhooks(X-Hub-Signature-256 の HMAC 署名つき POST)"
+standard_urls = ["https://docs.github.com/en/webhooks"]
+replaceability = "impossible"
+replacement = "送り手が GitHub なので受け口の形(HTTP POST + 署名ヘッダー)は変えられない。"
+next_step = "署名検証つきの最小ハンドラのまま。増やさない。"
+search_queries = []
+signal_terms = []
+[[exception.use]]
+repo = "backup-to-discord-by-github"
+where = "GitHub Webhook 受信(確認済み 2026-11-08)"
+
+[[exception]]
+id = "git-smart-http"
+name = "git smart HTTP"
+name_en = "git smart HTTP transport"
+standard = "Git HTTP プロトコル(info/refs・git-upload-pack・git-receive-pack)"
+standard_urls = ["https://git-scm.com/docs/http-protocol"]
+replaceability = "impossible"
+replacement = "git クライアントが決まった URL へ来る。Gitea/GitHub 互換を保つ限り変えられない。"
+next_step = "git 転送以外のルートを混ぜない。"
+search_queries = []
+signal_terms = []
+[[exception.use]]
+repo = "open-gitea"
+where = "git smart HTTP ルート(確認済み 2026-11-08)"
+
+[[exception]]
+id = "acme-mock-test"
+name = "ACME モック(テスト用)"
+name_en = "ACME mock (test code only)"
+standard = "RFC 8555(ACME)のテスト用模擬サーバー"
+standard_urls = ["https://www.rfc-editor.org/rfc/rfc8555"]
+replaceability = "impossible"
+replacement = "本番では動かないテストコード。集計では cfg(test)・tests/・mock 名のファイルを数えない。"
+next_step = "なし(集計から除外済み)。"
+search_queries = []
+signal_terms = []
+[[exception.use]]
+repo = "open-web-server"
+where = "ACME モック(テストコード。確認済み 2026-11-08)"

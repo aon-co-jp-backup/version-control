@@ -124,7 +124,7 @@ pub struct RouteCount {
     pub api_admin: usize,
 }
 
-const SKIP_DIRS: [&str; 13] = ["target", "node_modules", ".git", "vendor", "advisory-db", "dist", ".deps", ".vscode-test", ".vscode-test-web", "tests", "examples", "benches", "site"];
+const SKIP_DIRS: [&str; 18] = ["target", "node_modules", ".git", "vendor", "advisory-db", "dist", ".deps", ".vscode-test", ".vscode-test-web", "tests", "examples", "benches", "site", "clients", "mock", "mocks", "fixtures", "testdata"];
 
 fn re(p: &str) -> Regex {
     Regex::new(p).expect("static regex")
@@ -180,7 +180,7 @@ fn strip_test_mods(text: &str, start: &Regex) -> String {
 
 fn is_test_file(name: &str) -> bool {
     let stem = name.trim_end_matches(".rs");
-    stem == "test" || stem == "tests" || stem.ends_with("_test") || stem.ends_with("_tests")
+    stem.contains("mock") || stem == "test" || stem == "tests" || stem.ends_with("_test") || stem.ends_with("_tests")
 }
 
 fn collect_files(dir: &Path, rel: &str, skip: &[String], out: &mut Vec<PathBuf>) {
@@ -272,8 +272,68 @@ pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (Rout
 
 // ---------------------------------------------------------------- state
 
+/// A clone that is behind (or diverged from) its origin; reported apart from the route counts, which always read origin.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Lag {
+    pub name: String,
+    pub behind: u32,
+    pub ahead: u32,
+}
+
+/// Normalised origin URL (`git@github.com:o/r.git` and `https://github.com/o/r` agree), lower case.
+pub fn origin_key(url: &str) -> String {
+    let u = url.trim().trim_end_matches('/').trim_end_matches(".git").to_ascii_lowercase();
+    let u = u.replace("git@github.com:", "github.com/");
+    u.split("://").last().unwrap_or(&u).rsplit('@').next().unwrap_or(&u).to_string()
+}
+
+/// Groups clone dirs by origin so aliases/duplicates (ows-base, `.broken-*`, branch clones, renamed dirs) count once.
+/// Returns (canonical dirs, alias name -> canonical name). The canonical dir is the one named like the repo in the URL.
+pub fn dedup_by_origin(dirs: Vec<PathBuf>, origin_of: &dyn Fn(&Path) -> Option<String>) -> (Vec<PathBuf>, BTreeMap<String, String>) {
+    let mut groups: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    let mut singles = Vec::new();
+    for d in dirs {
+        let name = d.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if name.contains(".broken") {
+            // quarantined copies: never counted; alias of whatever shares their origin when known
+            if let Some(u) = origin_of(&d) {
+                groups.entry(origin_key(&u)).or_default().push(d);
+            }
+            continue;
+        }
+        match origin_of(&d) {
+            Some(u) => groups.entry(origin_key(&u)).or_default().push(d),
+            None => singles.push(d),
+        }
+    }
+    let mut keep = singles;
+    let mut aliases = BTreeMap::new();
+    for (key, mut v) in groups {
+        let repo = key.rsplit('/').next().unwrap_or("").to_string();
+        let nm = |p: &PathBuf| p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        v.sort_by_key(|p| {
+            let n = nm(p);
+            (n.contains(".broken"), n.to_ascii_lowercase() != repo, n.len(), n)
+        });
+        let head = v.remove(0);
+        let hn = nm(&head);
+        if !hn.contains(".broken") {
+            keep.push(head);
+        }
+        for a in v {
+            aliases.insert(nm(&a), hn.clone());
+        }
+    }
+    keep.sort();
+    (keep, aliases)
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
+    #[serde(default)]
+    pub lagging: Vec<Lag>,
     pub t: u64,
     pub date: String,
     pub repos: BTreeMap<String, RouteCount>,
@@ -476,11 +536,20 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
     let mut snap = Snapshot { t: now, date: date_jst(now), ..Default::default() };
     let mut current: HashMap<String, BTreeSet<String>> = HashMap::new();
     let mut clone_fallback = 0usize;
-    for dir in crate::list_repos(cfg) {
+    let (dirs, aliases) = dedup_by_origin(crate::list_repos(cfg), &|d| crate::git(d, &["remote", "get-url", "origin"], Duration::from_secs(10)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+    snap.aliases = aliases;
+    for dir in dirs {
         let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
         if cfg.policy.fetch_clones {
             // read-only: refresh the remote-tracking refs so @{u} is the real latest (never pull/merge)
             let _ = crate::git(&dir, &["fetch", "--quiet"], Duration::from_secs(60));
+        }
+        if let Some(out) = crate::git(&dir, &["rev-list", "--left-right", "--count", "HEAD...@{u}"], Duration::from_secs(20)) {
+            let mut it = out.split_whitespace().filter_map(|x| x.parse::<u32>().ok());
+            let (ahead, behind) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
+            if behind > 0 {
+                snap.lagging.push(Lag { name: name.clone(), behind, ahead });
+            }
         }
         let ((rc, rest), from_origin) = count_routes_origin(&dir, &name, &cfg.apiex.skip_paths);
         if !from_origin {
@@ -496,6 +565,7 @@ pub fn patrol(cfg: &Config, st: &mut State, now: u64, verbose: bool) -> Result<O
     }
 
     if verbose {
+        println!("  aliases merged by origin: {:?}; clones behind origin: {}", snap.aliases, snap.lagging.len());
         println!("  api routes read from origin; {clone_fallback} repo(s) fell back to the clone");
         println!("  api timing: research {:.1}s (mostly waiting on search), route counting {:.1}s", t_research.as_secs_f32(), t1.elapsed().as_secs_f32());
     }
@@ -641,6 +711,8 @@ fn public_json(cfg: &Config, ledger: &Ledger, results: &[(Exception, Research)],
         "counts": counts, "exceptions": ex,
         "routes": {"repos": repos, "total_rest_like": total_public, "method": "axum .route / poem .at / hyper (Method, \"/path\") を静的に数えた目安(Connect形式と例外パスを除く)"},
         "history": day_series(history),
+        "merged_aliases": snap.aliases.iter().filter(|(a, c)| public(a) && public(c)).map(|(a, c)| json!({"alias": a, "of": c})).collect::<Vec<_>>(),
+        "clone_lag": snap.lagging.iter().filter(|l| public(&l.name)).map(|l| json!({"name": l.name, "behind": l.behind, "ahead": l.ahead})).collect::<Vec<_>>(),
     })
 }
 
@@ -680,6 +752,21 @@ mod tests {
         }
         assert!(!is_exception_path("/api/users"));
         assert!(!is_exception_path("/admin/stats"));
+    }
+
+    #[test]
+    fn dedups_aliases_by_origin() {
+        let dirs: Vec<PathBuf> = ["ows-base", "open-web-server", "open-web-server.broken-1", "e-gov", "e-gov.info", "solo"].iter().map(PathBuf::from).collect();
+        let f = |d: &Path| match d.file_name().unwrap().to_str().unwrap() {
+            "ows-base" | "open-web-server" | "open-web-server.broken-1" => Some("git@github.com:aon-co-jp/open-web-server.git".to_string()),
+            "e-gov" | "e-gov.info" => Some("https://github.com/aon-co-jp/e-gov".to_string()),
+            _ => None,
+        };
+        let (keep, al) = dedup_by_origin(dirs, &f);
+        let k: Vec<String> = keep.iter().map(|p| p.to_str().unwrap().to_string()).collect();
+        assert_eq!(k, vec!["e-gov", "open-web-server", "solo"]);
+        assert_eq!(al.get("ows-base").map(String::as_str), Some("open-web-server"));
+        assert_eq!(al.get("e-gov.info").map(String::as_str), Some("e-gov"));
     }
 
     #[test]

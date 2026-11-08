@@ -294,3 +294,12 @@ Beyond pasting a message, this runs **unattended repeat cycles until the work re
 - Work happens only in a fresh clone of origin; the working tree is untouched. Local commit on success only; push needs `--push` and `[autoloop] allow_push = true`.
 - **Off by default** (`[autoloop] enabled = false`); never run it on the production VPS.
 - Honest caveat: the agent's judgement is the model's; `LOOP_DONE` plus green tests is necessary, not sufficient — review the result. Only the loop control (`src/autoloop.rs`) is unit-tested; an end-to-end run with the real `claude` has not been verified.
+
+
+---
+
+## 追記 2026-11-08(日本語)
+台帳に **GraphiQL/docs 画面・SCIM(RFC 7644)・GitHub Webhook・git smart HTTP・ACME モック(テスト用)** を追加(根拠の規格URLは `exceptions.toml`)。集計の数え方も改修: (1) `#[cfg(test)]`・`tests/`・`examples/`・`clients/`・`mock*` を数えない、(2) 同じ origin のクローン(ows-base・`.broken-*`・別ブランチ・別名dir)は名寄せして1回だけ数える(`merged_aliases`)、(3) origin 基準を維持し、クローンの遅れ(`clone_lag`)は別項目で出す。
+
+## Addendum 2026-11-08 (English)
+Added GraphiQL/docs UI, SCIM, GitHub webhook, git smart HTTP and the ACME test mock to the ledger. The route counter now skips test/example/client/mock code, merges clones sharing an origin (`merged_aliases`), keeps reading origin, and reports clone lag separately (`clone_lag`).
