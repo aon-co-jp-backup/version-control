@@ -191,7 +191,7 @@ fn collect_files(dir: &Path, rel: &str, skip: &[String], out: &mut Vec<PathBuf>)
         let rel_here = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
         let Ok(ft) = e.file_type() else { continue };
         if ft.is_dir() {
-            if SKIP_DIRS.contains(&name.as_str()) || skip.iter().any(|s| s == &rel_here) {
+            if SKIP_DIRS.contains(&name.as_str()) || name.ends_with("testkit") || skip.iter().any(|s| s == &rel_here) {
                 continue;
             }
             collect_files(&path, &rel_here, skip, out);
@@ -245,20 +245,27 @@ pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (Rout
     let r_str = re(r#"\(\s*"(?:GET|POST|PUT|DELETE|PATCH)"\s*,\s*"(/[^"]*)""#);
     let r_test_mod = re(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{");
     let mut paths = BTreeSet::new();
+    // Routes registered in a file that fronts them with `connect::endpoint(` form an internal router behind a Connect bridge
+    // (not reachable from outside): they stay in `routes` but are not counted as REST-like.
+    let mut bridged: BTreeSet<String> = BTreeSet::new();
     for f in files {
         let Ok(text) = std::fs::read_to_string(&f) else { continue };
         let text = strip_test_mods(&text, &r_test_mod);
         let text = text.as_str();
+        let is_bridge = text.contains("connect::endpoint(");
         for r in [&r_route, &r_hyper, &r_str] {
             for c in r.captures_iter(text) {
                 paths.insert(c[1].to_string());
+                if is_bridge {
+                    bridged.insert(c[1].to_string());
+                }
             }
         }
     }
     let mut rc = RouteCount { routes: paths.len(), ..Default::default() };
     let mut rest = BTreeSet::new();
     for p in &paths {
-        if is_connect_path(p) || is_exception_path(p) {
+        if is_connect_path(p) || is_exception_path(p) || bridged.contains(p) {
             continue;
         }
         rc.rest_like += 1;
@@ -795,6 +802,27 @@ mod tests {
         assert_eq!(rc.rest_like, 3); // users, admin/stats, v1/items
         assert_eq!(rc.api_admin, 2);
         assert!(!rest.contains("/api/only-in-test"));
+    }
+
+    #[test]
+    fn bridged_internal_router_and_testkit_are_not_counted() {
+        let dir = std::env::temp_dir().join(format!("vc-apiex-bridge-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("crates/x-testkit/src")).unwrap();
+        std::fs::write(
+            dir.join("src/main.rs"),
+            r#"fn r(){ let inner = Route::new().at("/api/repos", get(a)).at("/api/groups", get(b));
+               Route::new().at("/open_x.v1.S/:method", connect::endpoint(inner)); }"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/other.rs"), r#"fn r(){ app.route("/v1/real", get(a)); }"#).unwrap();
+        std::fs::write(dir.join("crates/x-testkit/src/lib.rs"), r#"fn r(){ app.route("/api/mock", get(a)); }"#).unwrap();
+        let (rc, rest) = count_routes(&dir, "tmp", &[]);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(!rest.contains("/api/repos") && !rest.contains("/api/groups"), "bridged routes are internal: {rest:?}");
+        assert!(!rest.contains("/api/mock"), "testkit dirs are skipped");
+        assert!(rest.contains("/v1/real"), "a router in a file without the bridge still counts");
+        assert_eq!(rc.rest_like, 1);
     }
 
     #[test]
