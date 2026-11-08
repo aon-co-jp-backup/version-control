@@ -157,6 +157,11 @@ fn strip_test_mods(text: &str, start: &Regex) -> String {
     let mut pos = 0;
     while let Some(m) = start.find_at(text, pos) {
         out.push_str(&text[pos..m.start()]);
+        // A top-level (column 0) test module is by convention the last item of the file. Brace matching is thrown off by
+        // braces inside string literals (e.g. JSON in test fixtures), so drop everything from there to the end instead.
+        if m.start() == 0 || text.as_bytes()[m.start() - 1] == b'\n' {
+            return out;
+        }
         let mut depth = 1usize;
         let mut end = text.len();
         for (i, c) in text[m.end()..].char_indices() {
@@ -252,7 +257,7 @@ pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (Rout
         let Ok(text) = std::fs::read_to_string(&f) else { continue };
         let text = strip_test_mods(&text, &r_test_mod);
         let text = text.as_str();
-        let is_bridge = text.contains("connect::endpoint(");
+        let is_bridge = text.contains("connect::endpoint(") || text.contains("fn connect_route(");
         for r in [&r_route, &r_hyper, &r_str] {
             for c in r.captures_iter(text) {
                 paths.insert(c[1].to_string());
@@ -823,6 +828,14 @@ mod tests {
         assert!(!rest.contains("/api/mock"), "testkit dirs are skipped");
         assert!(rest.contains("/v1/real"), "a router in a file without the bridge still counts");
         assert_eq!(rc.rest_like, 1);
+    }
+
+    #[test]
+    fn top_level_test_module_is_dropped_even_with_braces_in_strings() {
+        let r = re(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{");
+        let src = "fn a(){ app.route(\"/real\", g); }\n#[cfg(test)]\nmod tests {\n  fn t(){ let s = \"}}\"; app.route(\"/api/in-test\", g); }\n}\nfn after(){ app.route(\"/also-test\", g); }\n";
+        let out = strip_test_mods(src, &r);
+        assert!(out.contains("/real") && !out.contains("/api/in-test") && !out.contains("/also-test"), "{out}");
     }
 
     #[test]
