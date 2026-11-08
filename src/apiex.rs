@@ -140,6 +140,10 @@ pub fn is_connect_path(p: &str) -> bool {
 pub fn is_exception_path(p: &str) -> bool {
     let l = p.to_ascii_lowercase();
     l.starts_with("/.well-known/")
+        || l.starts_with("/graphql")
+        || l.starts_with("/scim/")
+        || l == "/mcp"
+        || l.starts_with("/demo")
         || l.contains("health")
         || l.contains("webhook")
         || l.contains("callback")
@@ -257,7 +261,10 @@ pub fn count_routes(repo_dir: &Path, repo: &str, skip_paths: &[String]) -> (Rout
         let Ok(text) = std::fs::read_to_string(&f) else { continue };
         let text = strip_test_mods(&text, &r_test_mod);
         let text = text.as_str();
-        let is_bridge = text.contains("connect::endpoint(") || text.contains("fn connect_route(");
+        // acme.rs: the ACME protocol's own paths (RFC 8555; a documented exception in exceptions.toml), incl. its mock CA.
+        let is_bridge = text.contains("connect::endpoint(")
+            || text.contains("fn connect_route(")
+            || f.file_name().is_some_and(|n| n == "acme.rs");
         for r in [&r_route, &r_hyper, &r_str] {
             for c in r.captures_iter(text) {
                 paths.insert(c[1].to_string());
