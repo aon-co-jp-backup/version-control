@@ -18,7 +18,10 @@ pub struct Advisory {
 
 impl Advisory {
     pub fn affects(&self, v: &Version) -> bool {
-        !self.patched.iter().chain(self.unaffected.iter()).any(|r| r.matches(v))
+        // semver's `matches` never matches a pre-release (5.0.0-rc.1) against `>= 4.1.3`, which made every
+        // release candidate look vulnerable. Also try the version without its pre-release tag (RustSec treats it as newer).
+        let core = Version::new(v.major, v.minor, v.patch);
+        !self.patched.iter().chain(self.unaffected.iter()).any(|r| r.matches(v) || (!v.pre.is_empty() && r.matches(&core)))
     }
 }
 
@@ -145,6 +148,8 @@ mod tests {
         assert!(a.affects(&Version::parse("1.1.0").unwrap()));
         assert!(!a.affects(&Version::parse("1.2.3").unwrap()));
         assert!(!a.affects(&Version::parse("0.9.0").unwrap()));
+        // a release candidate of a newer major is not "vulnerable"
+        assert!(!a.affects(&Version::parse("5.0.0-rc.1").unwrap()));
     }
 
     #[test]
