@@ -79,7 +79,9 @@ pub fn claude_prompt(root: &str, repo: &RepoStatus, max_items: usize) -> String 
     let items = repo.claude_items();
     let lines: Vec<String> = items.iter().take(max_items).map(|i| line(i)).collect();
     let more = items.len().saturating_sub(max_items);
-    let mut s = format!("【{}】{}\\{} で次の更新が必要です(自動保守では対応しきれませんでした)。\n", repo.name, root.trim_end_matches(['/', '\\']), repo.name);
+    // Windows roots (drive letter or backslash) keep `\`; VPS roots like /root/repository use `/`.
+    let sep = if root.contains('\\') || root.as_bytes().get(1) == Some(&b':') { '\\' } else { '/' };
+    let mut s = format!("【{}】{}{}{} で次の更新が必要です(自動保守では対応しきれませんでした)。\n", repo.name, root.trim_end_matches(['/', '\\']), sep, repo.name);
     for l in &lines {
         s.push_str(l);
         s.push('\n');
