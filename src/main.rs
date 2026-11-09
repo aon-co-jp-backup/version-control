@@ -307,7 +307,10 @@ pub fn list_repos(cfg: &Config) -> Vec<PathBuf> {
         .filter(|p| p.join(".git").exists() && !cfg.exclude.contains(&p.file_name().unwrap_or_default().to_string_lossy().to_string()))
         .collect();
     v.sort();
-    v
+    // Clones sharing one origin (ows-base / ows-stream = open-web-server, atr-sonic = audiocafe-tokyo-rust, `.broken-*`)
+    // are one repository: scan the canonical one only, so old branches do not raise duplicate / stale alerts.
+    let (canonical, _aliases) = apiex::dedup_by_origin(v, &|d| git(d, &["remote", "get-url", "origin"], Duration::from_secs(10)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+    canonical
 }
 
 /// The manifests and lock files of the upstream branch (`@{u}`), written to a temp folder with `git ls-tree` + `git show`
