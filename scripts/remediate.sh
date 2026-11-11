@@ -82,7 +82,8 @@ elif [ "$mode" = pr ]; then
     body="version-control --fix --pr による自動対応。検証: cargo test = $t ($tot)。マージ前に差分を確認してください。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
-    if url=$(gh pr create --base "$base" --head "$br" --title "$msg" --body "$body" 2>/dev/null); then
+    slug=${url#https://github.com/}; slug=${slug%.git}
+    if url=$(gh pr create --repo "$slug" --base "$base" --head "$br" --title "$msg" --body "$body" 2>/tmp/vc-fix-"$repo".pr.err); then
       echo "RESULT $repo: PRを作成 $url (test $tot)$tail_msg"
     else
       echo "RESULT $repo: ブランチ $br をpush済み(PR作成失敗: gh を確認) test $tot$tail_msg"
