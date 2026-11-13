@@ -30,6 +30,9 @@ pub struct Config {
     /// Updates this program itself from its own repository (`--self-update`, and at the start of every run).
     #[serde(default)]
     pub selfupdate: SelfUpdate,
+    /// Triage of the pull requests this program opened (`--review`).
+    #[serde(default)]
+    pub review: Review,
     /// Folder the dashboard (`index.html` + `status.json`) is written to.
     #[serde(default = "default_site")]
     pub site_dir: PathBuf,
@@ -237,6 +240,9 @@ pub struct Fix {
     /// At most this many dependencies per repository in one run (0 = 12).
     #[serde(default)]
     pub upgrade_max: usize,
+    /// At most this many repositories get a new upgrade pull request per run (0 = 5).
+    #[serde(default)]
+    pub upgrade_max_repos: usize,
 }
 
 /// `[selfupdate]`: how version-control brings itself up to date.
@@ -304,4 +310,20 @@ fn default_agent() -> Vec<String> {
 }
 fn default_loop_dir() -> PathBuf {
     PathBuf::from(".vc-loop")
+}
+
+/// `[review]`: what `--review` may do with open `vc/` pull requests.
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct Review {
+    /// Squash-merge a pull request when every change in it stays inside the declared semver range (no major),
+    /// GitHub says it is mergeable, no check failed and our own full test run passed. Majors are never merged.
+    #[serde(default)]
+    pub auto_merge: bool,
+    /// GitHub owner whose pull requests are looked at.
+    #[serde(default = "default_owner")]
+    pub owner: String,
+}
+
+fn default_owner() -> String {
+    "aon-co-jp".into()
 }

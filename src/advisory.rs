@@ -37,7 +37,12 @@ pub fn refresh(dir: &Path, url: &str) -> Result<(), String> {
         c.args(args).env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output()
     };
     let out = if dir.join(".git").exists() {
-        git(&["pull", "--ff-only", "--quiet", "--depth", "1"], Some(dir))
+        // A throw-away mirror of the RustSec database: its history is rewritten upstream now and then, which makes
+        // `pull --ff-only` fail for good (and leaves the scan on stale advisories). Fetch the branch and move to it.
+        match git(&["fetch", "--quiet", "--depth", "1", "origin"], Some(dir)) {
+            Ok(o) if o.status.success() => git(&["reset", "--hard", "--quiet", "FETCH_HEAD"], Some(dir)),
+            other => other,
+        }
     } else {
         git(&["clone", "--quiet", "--depth", "1", url, &dir.to_string_lossy()], None)
     };

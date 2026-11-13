@@ -63,6 +63,13 @@ sync_clones = false    # --sync / --auto: 手元が綺麗で origin より遅れ
 upgrade = false        # --auto: 古い要求(Cargo.toml/package.json)を最新へ上げ、1つずつビルド確認→全体テスト→ vc/upgrade-日付 ブランチ+PR にする
 upgrade_skip = []      # 自動では上げない依存名 (人が判断する major など)
 upgrade_max = 12       # 1リポジトリ・1回で上げる依存数の上限
+upgrade_max_repos = 5   # 1回の実行で新しい PR を作るリポジトリ数の上限 (残りは翌日)
+
+[review]
+# --review (--auto に含まれる): 開いている vc/upgrade-* PR の点検。auto_merge = true なら、全変更が宣言した範囲内(メジャーなし)・マージ可能・
+# CI失敗なし・テスト合格の PR だけ squash マージ。メジャーは絶対にマージしない。
+auto_merge = false
+owner = "aon-co-jp"
 
 [selfupdate]
 # version-control 自身の自己更新 (--self-update、enabled なら毎回の実行の最初)。クリーンで遅れているだけのクローンだけ fast-forward →

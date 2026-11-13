@@ -11,6 +11,7 @@ mod autoloop;
 mod bump;
 mod notify;
 mod report;
+mod review;
 mod scan;
 mod selfupdate;
 
@@ -52,13 +53,14 @@ struct Args {
     pr: bool,
     hw: bool,
     auto: bool,
+    review: bool,
     sync: bool,
     self_update: bool,
     only: Option<String>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, auto: false, sync: false, self_update: false, only: None };
+    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, auto: false, review: false, sync: false, self_update: false, only: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -76,6 +78,7 @@ fn parse_args() -> Args {
             "--pr" => a.pr = true,
             "--hw" => a.hw = true,
             "--auto" => a.auto = true,
+            "--review" => a.review = true,
             "--sync" => a.sync = true,
             "--self-update" => a.self_update = true,
             "--only" => a.only = it.next(),
@@ -86,6 +89,7 @@ fn parse_args() -> Args {
   --api-only     run only the API exception patrol (ledger, route counts, notice)
   --demo         write the sample status.json for the public demo (no scan)
   --auto         unattended maintenance: sync clones, fix vulnerabilities, raise outdated requirements in verified work copies, open pull requests (needs [fix] enabled/allow_pr; the VPS only scans)
+  --review       triage the open vc/ pull requests: merge the ones that stay inside their semver range (needs [review] auto_merge), list what a person must check for the rest
   --sync         fast-forward clean, behind-only clones (needs [fix] sync_clones)
   --self-update  update this program from its own repository (needs [selfupdate] enabled), then re-run
   --version      print the version
@@ -121,6 +125,7 @@ fn main() -> Result<()> {
         args.apply = true;
         args.pr = true;
         args.sync = true;
+        args.review = true;
     }
     if args.demo {
         let cfg_site = Config::load(&args.config).map(|c| c.site_dir).unwrap_or_else(|_| PathBuf::from("site"));
@@ -243,6 +248,27 @@ fn main() -> Result<()> {
                 run_agent_for_failures(&cfg, repo, items, &mut fix_failures, &mut fix_done);
             }
         }
+    }
+    if args.review {
+        // Runs after the new pull requests exist, so one run both opens and triages them.
+        for line in review::run(&cfg.review) {
+            println!("{line}");
+            if fix::is_failure(&line) {
+                fix_failures.push(line);
+            } else if !line.contains("開いている更新 PR は無い") {
+                fix_done.push(line);
+            }
+        }
+    }
+    if args.fix || args.review {
+        // The PC runs with --dry-run (no e-mail), so the outcome is also kept in a file anyone can open.
+        let mut report = format!("version-control 自動メンテナンスの結果 {}
+", now());
+        for l in fix_done.iter().map(|l| ("done", l)).chain(fix_failures.iter().map(|l| ("要対応", l))) {
+            report.push_str(&format!("[{}] {}
+", l.0, l.1));
+        }
+        let _ = std::fs::write("auto-report.txt", report);
     }
     if args.loop_run {
         run_loop(&repos, &cfg, &args);
@@ -700,7 +726,7 @@ fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args, maintainers: &[Maint
             }
         }
     }
-    for up in fix::apply_upgrades(&plans, mode, Path::new("scripts/upgrade.sh"), workers, jobs) {
+    for up in fix::apply_upgrades(&plans, mode, Path::new("scripts/upgrade.sh"), workers, jobs, if cfg.fix.upgrade_max_repos == 0 { 5 } else { cfg.fix.upgrade_max_repos }) {
         println!("{}", up.result);
         for n in &up.handled {
             outcome.handled.insert((up.repo.clone(), n.clone()));

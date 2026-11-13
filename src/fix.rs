@@ -189,7 +189,7 @@ pub fn parse_upgrade_output(repo: &str, text: &str, pushed: bool) -> UpgradeOutc
 }
 
 /// Runs `scripts/upgrade.sh` once per repository (repositories in parallel, up to `workers`).
-pub fn apply_upgrades(plans: &[Plan], mode: Mode, script: &Path, workers: usize, jobs: usize) -> Vec<UpgradeOutcome> {
+pub fn apply_upgrades(plans: &[Plan], mode: Mode, script: &Path, workers: usize, jobs: usize, max_prs: usize) -> Vec<UpgradeOutcome> {
     let mut groups: Vec<(String, String, Vec<&Plan>)> = Vec::new();
     for p in plans.iter().filter(|p| matches!(p.kind, Kind::Upgrade { .. })) {
         match groups.iter_mut().find(|(r, _, _)| *r == p.repo) {
@@ -200,13 +200,18 @@ pub fn apply_upgrades(plans: &[Plan], mode: Mode, script: &Path, workers: usize,
     let vc_bin = std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     let queue = std::sync::Mutex::new(groups.iter().enumerate().collect::<Vec<_>>().into_iter());
     let results = std::sync::Mutex::new(vec![UpgradeOutcome::default(); groups.len()]);
+    let created = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|s| {
         for _ in 0..workers.max(1) {
             s.spawn(|| loop {
+                // Per-run cap on new pull requests: the rest waits for tomorrow's run (keeps the review load bounded).
+                if max_prs > 0 && created.load(std::sync::atomic::Ordering::SeqCst) >= max_prs {
+                    break;
+                }
                 let next = queue.lock().unwrap().next();
                 let Some((i, (repo, origin, items))) = next else { break };
                 let list: String = items.iter().filter_map(|p| match &p.kind {
-                    Kind::Upgrade { eco, file, to, .. } => Some(format!("{eco}	{file}	{}	{to}
+                    Kind::Upgrade { eco, file, to, req } => Some(format!("{eco}	{file}	{}	{to}	{req}
 ", p.krate)),
                     _ => None,
                 }).collect();
@@ -221,6 +226,9 @@ pub fn apply_upgrades(plans: &[Plan], mode: Mode, script: &Path, workers: usize,
                     },
                 };
                 let _ = std::fs::remove_file(&plan_file);
+                if out.result.contains("PRを作成") || out.result.contains("push済み") {
+                    created.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 results.lock().unwrap()[i] = out;
             });
         }

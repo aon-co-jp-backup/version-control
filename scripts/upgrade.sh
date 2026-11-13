@@ -36,8 +36,8 @@ git checkout -q -b "$br"
 export GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-version-control} GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-version-control@localhost}
 export GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
 
-okc=0; touched=""; failed=0; summary=""
-while IFS=$'\t' read -r eco file name to; do
+okc=0; touched=""; failed=0; summary=""; markers=""
+while IFS=$'\t' read -r eco file name to from; do
   [ -n "$name" ] || continue
   dir=$(dirname "$file"); mf=$(basename "$file")
   [ -f "$file" ] || { echo "ITEM $name fail $file が無い"; failed=$((failed+1)); continue; }
@@ -65,7 +65,8 @@ while IFS=$'\t' read -r eco file name to; do
   git add -u
   if git commit -q -m "deps: $name を $to 系へ更新($file)" -m "version-control --auto による自動更新。要求を書き換え、ビルド確認済み(全体のテストは最後にまとめて実施)。" \
        -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"; then
-    okc=$((okc+1)); touched="$touched $eco:$dir"; summary="$summary $name→$to"
+    okc=$((okc+1)); touched="$touched $eco:$dir"; summary="$summary $name→$to"; markers="$markers
+<!-- vc-upgrade: $name | $from | $to -->"
     echo "ITEM $name ok"
   else
     echo "ITEM $name ok 変更なし"
@@ -108,6 +109,7 @@ note=""; [ "$t" != PASS ] && note=" 更新前から失敗するテストあり(�
 if [ "$mode" = pr ]; then
   if git push -q origin "HEAD:refs/heads/$br"; then
     body="version-control --auto による自動更新です(更新:$summary)。各依存はビルド確認済み、まとめてのテストは $t。$note 破壊的変更の可能性があるので、マージ前に差分とリリースノートを確認してください。
+$markers
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
     base_br=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); base_br=${base_br:-main}

@@ -8,3 +8,4 @@ env
 run.log
 advisory-db/
 run-auto.log
+auto-report.txt
