@@ -7,3 +7,4 @@ scan.log
 env
 run.log
 advisory-db/
+run-auto.log
