@@ -21,7 +21,16 @@ versions=$(grep -A1 "^name = \"$crate\"\$" "$lock" | grep '^version' | sed 's/ve
 case "$kind" in
   bump)
     [ -n "$ver" ] || { echo "RESULT $repo: bump先の版が未指定"; exit 2; }
-    for v in $versions; do cargo update -p "$crate@$v" --precise "$ver" >/dev/null 2>&1 || cargo update -p "$crate" --precise "$ver" 2>&1 | tail -2; done
+    for v in $versions; do
+      cargo update -p "$crate@$v" --precise "$ver" >/dev/null 2>&1 && continue
+      cargo update -p "$crate" --precise "$ver" >/dev/null 2>&1 && continue
+      # 要求(Cargo.toml)が修正版を許していない(例: quick-xml 0.38 → 0.41)。要求を書き換えてから lock を更新する。
+      vc=${VC_BIN:-version-control}
+      for m in $(git ls-files '*Cargo.toml' | xargs grep -l "$crate" 2>/dev/null); do
+        (cd "$(dirname "$m")" && "$vc" --edit-dep "$(basename "$m")" "$crate" "$ver" >/dev/null 2>&1)
+      done
+      cargo update -p "$crate" >/dev/null 2>&1 || cargo update >/dev/null 2>&1 || echo "要求を上げても $crate を更新できない" >&2
+    done
     msg="deps: $crate を $ver に更新(RustSec 勧告の修正版)"
     ;;
   mitigate)

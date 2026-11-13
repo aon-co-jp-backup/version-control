@@ -264,3 +264,44 @@ Beyond pasting a message, this runs **unattended repeat cycles until the work re
 - Work happens only in a fresh clone of origin; the working tree is untouched. Local commit on success only; push needs `--push` and `[autoloop] allow_push = true`.
 - **Off by default** (`[autoloop] enabled = false`); never run it on the production VPS.
 - Honest caveat: the agent's judgement is the model's; `LOOP_DONE` plus green tests is necessary, not sufficient — review the result. Only the loop control (`src/autoloop.rs`) is unit-tested; an end-to-end run with the real `claude` has not been verified.
+
+
+## 無人の自動メンテナンス `--auto` と自己更新 `--self-update` / Unattended maintenance and self-update (2026-11-13)
+
+### 日本語
+通知メールに来ていた「依存が古い・脆弱・クローンが遅れている」を、**人が貼り付けなくても直す**ための機能です。**ビルドする機械でだけ**動かし、本番 VPS は従来どおり走査と通知だけです。
+
+`version-control --auto`(= `--fix --apply --pr --sync`)の流れ:
+
+| 対象 | 自動の中身 | 条件 |
+| --- | --- | --- |
+| クローンが origin より遅れているだけ | 作業ツリーが綺麗なら `git merge --ff-only`(合流・上書きはしない) | `[fix] sync_clones = true`(ビルド不要なので VPS でも可) |
+| 脆弱性(RustSec)で修正版あり | `cargo update --precise`。**Cargo.toml の要求が修正版を許さない場合は要求も書き換え**(例: quick-xml 0.38→0.41、time 0.3.41→0.3.47) | `[fix] enabled` |
+| 古い要求(crates.io / npm のメジャー・マイナー・パッチ) | 作業コピーで要求を最新に書き換え(演算子と桁は保つ。`0.60`→`0.61`、`^1`→`^3`)→ lock 更新 → **1つずつビルド確認**(`cargo check --all-targets` / `npm run build`)→ 通ったものだけ別コミット → まとめてテスト → ブランチ `vc/upgrade-日付` + PR | `[fix] upgrade = true` と `allow_pr = true` |
+| ビルドが通らない更新(破壊的変更) | その依存だけ取り消し、理由つきで報告。`[autoloop] enabled = true` ならエージェント(`claude -p`)が `vc/loop-*` ブランチ + PR で続きを試みる | 任意 |
+| 自分自身(version-control) | `--self-update`: 綺麗で遅れているだけなら fast-forward → ビルド → `--version` で起動確認 → 成功したら新しい build で同じ引数を再実行。**失敗したら元のコミットに戻す** | `[selfupdate] enabled = true` |
+
+- **重複させない**: すでに `vc/upgrade-*` の PR が開いていれば新しく作らず「PR待ち」と扱う。PR 済みの依存は「Claude に頼む」メッセージから外れる(通知は「自動対応の結果」と、自動で直せなかったものだけ)。
+- **安全策**: 作業は新規 clone のみ(手元の作業ツリーは触らない)/ 強制 push なし / 既定ブランチへは直接 push しない(`--push` 指定と `allow_push` がある場合のみ)/ テスト不合格は push しない(更新前から失敗するテストは「更新は無関係」と明記)/ composer は未対応(報告のみ)/ `upgrade_skip` に書いた依存は触らない / 秘密は表示しない。
+- **使い方**: ビルドする機械(手元 PC)の `config.toml` に `[fix] enabled = true / allow_pr = true / upgrade = true / sync_clones = true`、必要なら `[selfupdate] enabled = true` を書き、タスクスケジューラ等で `version-control --auto` を 1日数回。まず `--dry-run --no-fetch --fix` で計画だけ確認できる。部品: `src/bump.rs`(Cargo.toml は `toml_edit` で書式・コメントを保つ、package.json は文字列置換。`version-control --edit-dep FILE NAME LATEST`)、`scripts/upgrade.sh`、`src/selfupdate.rs`。
+- **確認済み**: 単体試験(要求の書き換え・自己更新の判定と巻き戻し・出力の解釈)、実 git/実 cargo での通し(`itoa 0.4`→`1`: 成功時は別コミット+テスト合格、コンパイルが通らない更新は取り消して `ITEM … fail`、脆弱性修正で要求を書き換えて lock が修正版以上になる)。
+- **未確認(正直に)**: 実 GitHub での `vc/upgrade-*` PR 作成(コードは `remediate.sh` の既存経路と同じ形だが、この変更では未実行)、npm の通し(コードのみ)、エージェント(`claude -p`)での続行の通し、自己更新の本番(VPS)での実行。Windows では `fix::script_tests` の1件(`bash` にパスを渡す既存の試験)が従来から失敗する(WSL/Linux では通る)。
+
+### English
+Features that fix, **without anyone pasting messages**, what the notification e-mails reported (outdated dependencies, vulnerabilities, stale clones). Run them **only on a machine that may build**; the production VPS keeps scanning and notifying.
+
+`version-control --auto` (= `--fix --apply --pr --sync`):
+
+| Target | What is automated | Needs |
+| --- | --- | --- |
+| Clone only behind origin | `git merge --ff-only` when the tree is clean (never a merge or overwrite) | `[fix] sync_clones = true` (no build, so the VPS may do it) |
+| Vulnerability with a fixed release | `cargo update --precise`; **when the Cargo.toml requirement does not allow the fix, the requirement is raised too** (e.g. quick-xml 0.38→0.41) | `[fix] enabled` |
+| Outdated requirement (crates.io / npm major/minor/patch) | In a work copy raise the requirement (operator and precision kept: `0.60`→`0.61`, `^1`→`^3`) → update the lock → **build-check one by one** (`cargo check --all-targets` / `npm run build`) → one commit per success → test everything → branch `vc/upgrade-DATE` + pull request | `[fix] upgrade = true`, `allow_pr = true` |
+| Update that does not build (breaking change) | Only that dependency is dropped and reported with the reason; with `[autoloop] enabled = true` the agent (`claude -p`) continues on a `vc/loop-*` branch + PR | optional |
+| This program itself | `--self-update`: fast-forward when clean and only behind → build → smoke test (`--version`) → on success re-run with the same arguments with the new build; **on failure the clone returns to its previous commit** | `[selfupdate] enabled = true` |
+
+- **No duplicates**: an open `vc/upgrade-*` pull request means "waiting"; nothing new is created. Dependencies already in a pull request drop out of the "ask Claude" message (the notice carries "automatic results" and what could not be fixed).
+- **Safeguards**: fresh clones only (your working tree is never touched) / no force push / never straight to the default branch unless `--push` and `allow_push` / failing tests are never pushed (a failure that already existed is marked "unrelated") / composer is report-only / `upgrade_skip` names are never touched / secrets are never printed.
+- **Usage**: on the build machine put `[fix] enabled = true / allow_pr = true / upgrade = true / sync_clones = true` (and optionally `[selfupdate] enabled = true`) in `config.toml` and run `version-control --auto` a few times a day (Task Scheduler etc.). Preview with `--dry-run --no-fetch --fix`. Parts: `src/bump.rs` (`toml_edit` keeps Cargo.toml layout and comments; package.json by text replacement; `version-control --edit-dep FILE NAME LATEST`), `scripts/upgrade.sh`, `src/selfupdate.rs`.
+- **Verified**: unit tests (requirement rewriting, self-update decisions and rollback, output parsing) and end-to-end runs with real git/cargo (`itoa 0.4`→`1`: success = separate commit + passing tests; a non-compiling update is reverted and reported as `ITEM … fail`; a vulnerability fix that needs a raised requirement ends with the lock at or above the fixed version).
+- **Not verified (honestly)**: opening a real `vc/upgrade-*` PR on GitHub (same shape as the existing `remediate.sh` path but not run for this change), the npm path end to end (code only), the agent continuation with a real `claude -p`, and self-update on the production VPS. On Windows one existing test (`fix::script_tests`, which hands a Windows path to `bash`) already failed before this change (it passes on WSL/Linux).

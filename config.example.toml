@@ -59,6 +59,18 @@ allow_push = false     # --push: 既定ブランチへ直接 push (テスト全�
 allow_pr = false       # --pr: 新ブランチ vc/... を push して gh で PR を作る (強制 push はしない)
 lock_refresh = []      # Cargo.lock を cargo update で互換更新するリポジトリ名 ("*" で全部)
 max_workers = 0        # 同時に検証するリポジトリ数の上限 (0 = コア数とメモリから自動, 最大8)
+sync_clones = false    # --sync / --auto: 手元が綺麗で origin より遅れているだけのクローンを fast-forward する (ビルド不要なので VPS でも true にしてよい)
+upgrade = false        # --auto: 古い要求(Cargo.toml/package.json)を最新へ上げ、1つずつビルド確認→全体テスト→ vc/upgrade-日付 ブランチ+PR にする
+upgrade_skip = []      # 自動では上げない依存名 (人が判断する major など)
+upgrade_max = 12       # 1リポジトリ・1回で上げる依存数の上限
+
+[selfupdate]
+# version-control 自身の自己更新 (--self-update、enabled なら毎回の実行の最初)。クリーンで遅れているだけのクローンだけ fast-forward →
+# ビルド → 起動確認 (--version) に成功したときだけ置き換え、失敗したら元のコミットに戻す。成功したら新しい build で同じ引数を再実行。
+enabled = false
+dir = "."                                       # このプログラムのクローン
+build_command = ["cargo", "build", "--release", "--locked"]
+binary = "target/release/version-control"       # Windows は .exe
 
 [autoloop]
 # `version-control --loop --only REPO [--goal "..."] [--push]`: Claude Code Desktop-style repeat cycle

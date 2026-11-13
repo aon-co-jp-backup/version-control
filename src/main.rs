@@ -8,9 +8,11 @@ mod fix;
 mod hw;
 mod latest;
 mod autoloop;
+mod bump;
 mod notify;
 mod report;
 mod scan;
+mod selfupdate;
 
 use anyhow::{Context, Result};
 use config::Config;
@@ -49,11 +51,14 @@ struct Args {
     push: bool,
     pr: bool,
     hw: bool,
+    auto: bool,
+    sync: bool,
+    self_update: bool,
     only: Option<String>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, only: None };
+    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, auto: false, sync: false, self_update: false, only: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -70,13 +75,21 @@ fn parse_args() -> Args {
             "--push" => a.push = true,
             "--pr" => a.pr = true,
             "--hw" => a.hw = true,
+            "--auto" => a.auto = true,
+            "--sync" => a.sync = true,
+            "--self-update" => a.self_update = true,
             "--only" => a.only = it.next(),
             "--loop" => a.loop_run = true,
             "--goal" => a.goal = it.next(),
             "-h" | "--help" => {
                 println!("version-control [--config FILE] [--dry-run] [--force] [--no-fetch] [--test-notify] [--demo]\n  --dry-run      scan and write the dashboard, send nothing\n  --force        announce even if the message was already sent\n  --test-notify  send a short test message by e-mail and LINE\n  --no-api       skip the API exception patrol
   --api-only     run only the API exception patrol (ledger, route counts, notice)
-  --demo         write the sample status.json for the public demo (no scan)");
+  --demo         write the sample status.json for the public demo (no scan)
+  --auto         unattended maintenance: sync clones, fix vulnerabilities, raise outdated requirements in verified work copies, open pull requests (needs [fix] enabled/allow_pr; the VPS only scans)
+  --sync         fast-forward clean, behind-only clones (needs [fix] sync_clones)
+  --self-update  update this program from its own repository (needs [selfupdate] enabled), then re-run
+  --version      print the version
+  --edit-dep FILE NAME LATEST   raise one requirement in a Cargo.toml / package.json (used by scripts/upgrade.sh)");
                 std::process::exit(0);
             }
             other => eprintln!("ignoring unknown argument {other}"),
@@ -90,12 +103,56 @@ fn now() -> u64 {
 }
 
 fn main() -> Result<()> {
-    let args = parse_args();
+    let first: Vec<String> = std::env::args().skip(1).take(4).collect();
+    if first.first().map(String::as_str) == Some("--version") {
+        println!("version-control {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if first.first().map(String::as_str) == Some("--edit-dep") {
+        let [_, file, name, latest] = &first[..] else { anyhow::bail!("usage: --edit-dep FILE NAME LATEST") };
+        let n = bump::edit_file(file, name, latest)?;
+        println!("{name}: {n} requirement(s) changed in {file}");
+        return Ok(());
+    }
+    let mut args = parse_args();
+    if args.auto {
+        // One switch for the whole unattended routine; what is really allowed still comes from the config.
+        args.fix = true;
+        args.apply = true;
+        args.pr = true;
+        args.sync = true;
+    }
     if args.demo {
         let cfg_site = Config::load(&args.config).map(|c| c.site_dir).unwrap_or_else(|_| PathBuf::from("site"));
         return write_demo(&cfg_site.join("demo"));
     }
     let cfg = Config::load(&args.config)?;
+    let mut notes: Vec<String> = Vec::new();
+
+    // Self update first: a newer version-control may fix the very thing this run would otherwise report.
+    if (args.self_update || cfg.selfupdate.enabled) && std::env::var_os("VC_SELF_UPDATED").is_none() {
+        match selfupdate::run(&cfg.selfupdate) {
+            Ok(line) => {
+                println!("self-update: {line}");
+                if line.contains("へ更新") {
+                    // Run the freshly built program with the same arguments (once: VC_SELF_UPDATED stops a loop).
+                    let bin = cfg.selfupdate.dir.join(&cfg.selfupdate.binary);
+                    let st = Command::new(&bin).args(std::env::args().skip(1)).env("VC_SELF_UPDATED", "1").status();
+                    match st {
+                        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+                        Err(e) => notes.push(format!("version-control を更新しましたが、新しい build を起動できませんでした({e})。")),
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("self-update: {e}");
+                notes.push(format!("version-control の自己更新に失敗しました: {e}"));
+            }
+        }
+        if args.self_update && !args.auto && !args.fix && !args.sync {
+            return Ok(());
+        }
+    }
 
     if args.test_notify {
         let o = notify::deliver(&cfg.notify, "[version-control] 通知の試験", "version-control の通知試験です。このメールが届けば経路は正常です。", &["version-control の通知試験です。このメッセージが届けばLINEの経路は正常です。".to_string()]);
@@ -136,6 +193,11 @@ fn main() -> Result<()> {
     for dir in list_repos(&cfg) {
         // Read-only: fetch, then look at the upstream branch's manifests / lock files (not the possibly stale working tree).
         let fetched = !args.no_fetch && cfg.policy.fetch_clones && git(&dir, &["fetch", "--quiet"], Duration::from_secs(60)).is_some();
+        if args.sync && cfg.fix.sync_clones && fetched {
+            if let Some(line) = sync_clone(&dir) {
+                println!("  sync: {} {line}", dir.file_name().unwrap_or_default().to_string_lossy());
+            }
+        }
         let snap = OriginSnap::new(&dir);
         if snap.path.is_none() || (!args.no_fetch && cfg.policy.fetch_clones && !fetched) {
             println!("  note: {} reads the clone as it is (no upstream, or fetch failed)", dir.file_name().unwrap_or_default().to_string_lossy());
@@ -163,11 +225,24 @@ fn main() -> Result<()> {
     }
     state.cache = std::mem::take(&mut registry.cache);
     let mut fix_failures: Vec<String> = Vec::new();
+    let mut fix_done: Vec<String> = Vec::new();
     if args.fix {
-        fix_failures = run_fix(&repos, &cfg, &args, &maintainers);
-    }
-    if args.loop_run {
-        run_loop(&repos, &cfg, &args);
+        let out = run_fix(&repos, &cfg, &args, &maintainers);
+        fix_failures = out.failures;
+        fix_done = out.done;
+        // What is already waiting in a pull request is not announced as something to do.
+        for r in repos.iter_mut() {
+            for i in r.items.iter_mut().filter(|i| i.route == "claude") {
+                if out.handled.contains(&(r.name.clone(), i.name.clone())) {
+                    i.route = "auto".into();
+                }
+            }
+        }
+        if args.auto && cfg.autoloop.enabled {
+            for (repo, items) in &out.failed_upgrades {
+                run_agent_for_failures(&cfg, repo, items, &mut fix_failures, &mut fix_done);
+            }
+        }
     }
     if args.loop_run {
         run_loop(&repos, &cfg, &args);
@@ -196,6 +271,14 @@ fn main() -> Result<()> {
         }
     }
 
+    for n in &notes {
+        blocks.push(n.clone());
+    }
+    if !fix_done.is_empty() {
+        blocks.push(format!("自動対応の結果(確認のうえマージしてください):
+{}", fix_done.iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("
+")));
+    }
     if !fix_failures.is_empty() {
         blocks.push(format!("{root} の自動修正(--fix)が失敗または未対応でした。原因を調べて直してください:
 {}", fix_failures.iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("
@@ -541,25 +624,57 @@ fn write_demo(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// What `--fix` / `--auto` did, for the notification and for the routing of the items it took care of.
+#[derive(Default)]
+struct FixOutcome {
+    /// RESULT lines that need a human or the agent.
+    failures: Vec<String>,
+    /// RESULT lines worth telling the owner about (pull requests opened, pushes done, changes kept locally).
+    done: Vec<String>,
+    /// (repository, dependency) pairs that are taken care of (published, or already in an open pull request).
+    handled: std::collections::HashSet<(String, String)>,
+    /// Per repository: dependencies the automatic attempt could not upgrade, with the reason.
+    failed_upgrades: Vec<(String, Vec<(String, String)>)>,
+}
+
+/// Fast-forwards a clone that is clean and strictly behind (see `selfupdate::decide`). Returns a line only when something happened or is worth saying.
+fn sync_clone(dir: &Path) -> Option<String> {
+    let out = git(dir, &["rev-list", "--left-right", "--count", "HEAD...@{u}"], Duration::from_secs(20))?;
+    let mut it = out.split_whitespace().filter_map(|x| x.parse::<u32>().ok());
+    let (ahead, behind) = (it.next()?, it.next()?);
+    let dirty = git(dir, &["status", "--porcelain", "--untracked-files=no"], Duration::from_secs(20)).is_none_or(|s| !s.trim().is_empty());
+    match selfupdate::decide(ahead, behind, dirty) {
+        selfupdate::Decision::UpToDate => None,
+        selfupdate::Decision::Skip(why) => Some(format!("取り込まない({why})")),
+        selfupdate::Decision::Update => match git(dir, &["merge", "--ff-only", "--quiet", "@{u}"], Duration::from_secs(120)) {
+            Some(_) => Some(format!("origin に追従({behind} コミット、fast-forward)")),
+            None => Some("fast-forward に失敗".into()),
+        },
+    }
+}
+
 /// `--fix`: print the plan for every open vulnerability; with `--apply` (and `[fix] enabled`) carry it out in fresh clones.
-fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args, maintainers: &[MaintainerStatus]) -> Vec<String> {
+/// With `[fix] upgrade` the plan also raises outdated registry requirements (one pull request per repository).
+fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args, maintainers: &[MaintainerStatus]) -> FixOutcome {
     let mut plans = Vec::new();
     for rs in repos.iter().filter(|r| args.only.as_ref().map_or(true, |o| &r.name == o)) {
         let dir = cfg.root.join(&rs.name);
         plans.extend(fix::plan(&dir, rs, cfg));
         plans.extend(fix::plan_lock_refresh(&dir, &rs.name, &cfg.fix));
+        plans.extend(fix::plan_upgrades(&dir, rs, cfg));
     }
     println!("--- fix plan ({} item(s)) ---", plans.len());
     for p in &plans {
         println!("{}", fix::describe(p));
     }
+    let mut outcome = FixOutcome::default();
     if !args.apply {
         println!("(計画のみ。実行するには --fix --apply。[fix] enabled = true の機械でだけ動く)");
-        return Vec::new();
+        return outcome;
     }
     if !cfg.fix.enabled {
         println!("[fix] enabled = false のため実行しません(この機械はビルドしない設定)。");
-        return Vec::new();
+        return outcome;
     }
     let mode = fix::resolve_mode(args.push, args.pr, &cfg.fix);
     if (args.push || args.pr) && mode == fix::Mode::Local {
@@ -568,19 +683,62 @@ fn run_fix(repos: &[RepoStatus], cfg: &Config, args: &Args, maintainers: &[Maint
     let profile = hw::detect(cfg, maintainers);
     print!("{}", hw::render(&profile, &cfg.fix));
     let workers = hw::workers(&profile, &cfg.fix);
-    let results = fix::apply(&plans, mode, Path::new("scripts/remediate.sh"), workers, hw::jobs_per_worker(&profile, workers));
-    let mut failures = Vec::new();
+    let jobs = hw::jobs_per_worker(&profile, workers);
+    let results = fix::apply(&plans, mode, Path::new("scripts/remediate.sh"), workers, jobs);
     for line in &results {
         println!("{line}");
         if fix::is_failure(line) {
-            failures.push(line.clone());
-        } else if profile.llm_up {
-            if let Some(note) = fix::work_copy(line).and_then(|w| hw::summarize(cfg, w)) {
-                println!("  参考(aruaru-llm・判定には使わない): {note}");
+            outcome.failures.push(line.clone());
+        } else {
+            if !line.contains("変更なし") && !line.is_empty() {
+                outcome.done.push(line.clone());
+            }
+            if profile.llm_up {
+                if let Some(note) = fix::work_copy(line).and_then(|w| hw::summarize(cfg, w)) {
+                    println!("  参考(aruaru-llm・判定には使わない): {note}");
+                }
             }
         }
     }
-    failures
+    for up in fix::apply_upgrades(&plans, mode, Path::new("scripts/upgrade.sh"), workers, jobs) {
+        println!("{}", up.result);
+        for n in &up.handled {
+            outcome.handled.insert((up.repo.clone(), n.clone()));
+        }
+        // "PR待ち" is old news: it was announced when the pull request was opened.
+        if fix::is_failure(&up.result) {
+            outcome.failures.push(up.result.clone());
+        } else if !up.result.contains("PR待ち") && !up.result.contains("更新できたものなし") {
+            outcome.done.push(up.result.clone());
+        }
+        if !up.failed.is_empty() {
+            for (n, why) in &up.failed {
+                println!("  自動では更新できない: {n} — {why}");
+            }
+            outcome.failed_upgrades.push((up.repo.clone(), up.failed.clone()));
+        }
+    }
+    outcome
+}
+
+/// The unattended agent takes over what the scripted upgrade could not do (compile errors after a major bump, etc.).
+/// Only with `[autoloop] enabled`; the result goes to a `vc/loop-*` branch + pull request, never straight to main.
+fn run_agent_for_failures(cfg: &Config, repo: &str, items: &[(String, String)], failures: &mut Vec<String>, done: &mut Vec<String>) {
+    let origin = git(&cfg.root.join(repo), &["remote", "get-url", "origin"], Duration::from_secs(10)).unwrap_or_default().trim().to_string();
+    if origin.is_empty() {
+        return;
+    }
+    let list: Vec<String> = items.iter().map(|(n, why)| format!("- {n}: 自動更新が失敗した理由 = {why}")).collect();
+    let goal = format!(
+        "次の依存を最新版へ更新して。破壊的変更はリリースノートを日英で調べて呼び出し側を直し、ビルドとテストが通る状態にする。\n{}\n\
+         手順: 要求(Cargo.toml / package.json)を最新にして lock を更新 → ビルド → テスト。テストは弱めない・消さない。README/CLAUDE/PORTING に変更点を日英で追記。秘密は出さない。",
+        list.join("\n")
+    );
+    match autoloop::run(&cfg.autoloop, repo, &origin, &goal, false, cfg.fix.allow_pr) {
+        Ok(line) if line.contains("LOOP_DONE") => done.push(line),
+        Ok(line) => failures.push(line),
+        Err(e) => failures.push(format!("RESULT {repo}: loop error: {e:#}")),
+    }
 }
 
 /// A Connect method URL (`/<package>.v1.<Service>/<Method>`) must be called with POST and a JSON body; anything else is a plain GET.
@@ -629,7 +787,7 @@ fn run_loop(repos: &[RepoStatus], cfg: &Config, args: &Args) {
         println!("[autoloop] enabled = false: would run up to {} cycle(s) on {only} (goal: {} chars).", cfg.autoloop.max_cycles, goal.len());
         return;
     }
-    match autoloop::run(&cfg.autoloop, only, &origin, &goal, args.push) {
+    match autoloop::run(&cfg.autoloop, only, &origin, &goal, args.push, false) {
         Ok(line) => println!("{line}"),
         Err(e) => println!("RESULT {only}: loop error: {e:#}"),
     }

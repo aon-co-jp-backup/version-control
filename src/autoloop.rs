@@ -114,7 +114,7 @@ pub fn drive(
     Ok(Outcome::Exhausted { cycles: max, last_failure: failure })
 }
 
-pub fn run(cfg: &AutoLoop, repo: &str, origin: &str, goal: &str, push: bool) -> Result<String> {
+pub fn run(cfg: &AutoLoop, repo: &str, origin: &str, goal: &str, push: bool, pr: bool) -> Result<String> {
     let work: PathBuf = cfg.work_dir.join(repo);
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&cfg.work_dir)?;
@@ -138,7 +138,22 @@ pub fn run(cfg: &AutoLoop, repo: &str, origin: &str, goal: &str, push: bool) -> 
         let msg = format!("auto-loop: {goal}\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>");
         if git(&["add", "-A"]) && git(&["commit", "-q", "-m", &msg]) {
             line.push_str("; committed locally");
-            if push && cfg.allow_push {
+            if pr {
+                // Review path: a new branch and a pull request, never the default branch.
+                let br = format!("vc/loop-{}", std::process::id());
+                let slug = origin.trim_start_matches("https://github.com/").trim_end_matches(".git").to_string();
+                if git(&["push", "-q", "origin", &format!("HEAD:refs/heads/{br}")]) {
+                    let title = format!("auto-loop: {}", goal.lines().next().unwrap_or(""));
+                    let body = "version-control --auto のエージェントによる更新です。マージ前に差分を確認してください。\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)";
+                    let made = Command::new("gh").args(["pr", "create", "--repo", &slug, "--head", &br, "--title", &title, "--body", body]).output();
+                    match made {
+                        Ok(o) if o.status.success() => line.push_str(&format!("; PR {}", String::from_utf8_lossy(&o.stdout).trim())),
+                        _ => line.push_str(&format!("; branch {br} pushed (PR creation failed)")),
+                    }
+                } else {
+                    line.push_str("; branch push FAILED");
+                }
+            } else if push && cfg.allow_push {
                 line.push_str(if git(&["push", "-q", "origin", "HEAD"]) { "; pushed" } else { "; push FAILED" });
             }
         }

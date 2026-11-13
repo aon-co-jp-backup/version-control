@@ -20,3 +20,4 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "builder", "rustls-tls"] }
 rust-json = { path = "../RS-JSON", features = ["fast"] }
 sonic-rs = "0.5"
+toml_edit = "0.22"

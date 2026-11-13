@@ -215,3 +215,7 @@ Beyond pasting a message, this runs **unattended repeat cycles until the work re
 - Work happens only in a fresh clone of origin; the working tree is untouched. Local commit on success only; push needs `--push` and `[autoloop] allow_push = true`.
 - **Off by default** (`[autoloop] enabled = false`); never run it on the production VPS.
 - Honest caveat: the agent's judgement is the model's; `LOOP_DONE` plus green tests is necessary, not sufficient — review the result. Only the loop control (`src/autoloop.rs`) is unit-tested; an end-to-end run with the real `claude` has not been verified.
+
+## 2026-11-13 追加 / Added
+- **日本語**: `--auto`(同期・脆弱性修正・古い要求の更新をPRに)と `--self-update`(自己更新、失敗時は巻き戻し)を追加。詳細・安全策・未確認事項は `README.md` 末尾の節。守ること: 作業は新規cloneのみ、強制pushしない、既定ブランチへ直接pushしない、テスト不合格はpushしない、ビルドする機械でだけ(本番VPSで `[fix] enabled` や `[selfupdate]` のビルドを勝手に有効にしない)。要求の書き換えは `src/bump.rs`(テストあり)に集約。日本語を含むファイルを書き換えるときは、bash の引用に頼らずスクリプトファイル(Python/UTF-8)か Edit/Write を使う。
+- **English**: Added `--auto` (sync, vulnerability fixes, raising outdated requirements as pull requests) and `--self-update` (rolls back on failure). Details, safeguards and what is unverified are in the last section of `README.md`. Rules: fresh clones only, no force push, no direct push to the default branch, never push failing tests, build machines only (do not enable `[fix] enabled` or a `[selfupdate]` build on the production VPS without asking). Requirement rewriting lives in `src/bump.rs` (tested).

@@ -27,6 +27,9 @@ pub struct Config {
     /// Unattended investigate -> develop -> test -> debug cycles (`--loop`). Off by default.
     #[serde(default)]
     pub autoloop: AutoLoop,
+    /// Updates this program itself from its own repository (`--self-update`, and at the start of every run).
+    #[serde(default)]
+    pub selfupdate: SelfUpdate,
     /// Folder the dashboard (`index.html` + `status.json`) is written to.
     #[serde(default = "default_site")]
     pub site_dir: PathBuf,
@@ -222,6 +225,50 @@ pub struct Fix {
     /// Upper bound of repositories verified in parallel (0 = decided from cores and memory).
     #[serde(default)]
     pub max_workers: usize,
+    /// Fast-forward clones that are clean and only behind their upstream (no build needed, so the VPS may do it).
+    #[serde(default)]
+    pub sync_clones: bool,
+    /// Also raise outdated registry requirements (Cargo.toml / package.json) in verified work copies (`--auto`).
+    #[serde(default)]
+    pub upgrade: bool,
+    /// Dependencies never raised automatically (names), e.g. a major that needs a human decision.
+    #[serde(default)]
+    pub upgrade_skip: Vec<String>,
+    /// At most this many dependencies per repository in one run (0 = 12).
+    #[serde(default)]
+    pub upgrade_max: usize,
+}
+
+/// `[selfupdate]`: how version-control brings itself up to date.
+#[derive(Debug, Deserialize, Clone)]
+pub struct SelfUpdate {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Folder of this program's own clone.
+    #[serde(default = "default_self_dir")]
+    pub dir: PathBuf,
+    /// Build command run in `dir` (the result replaces `binary` only when it succeeds and passes a smoke test).
+    #[serde(default = "default_self_build")]
+    pub build_command: Vec<String>,
+    /// The built program (relative to `dir`).
+    #[serde(default = "default_self_binary")]
+    pub binary: PathBuf,
+}
+
+impl Default for SelfUpdate {
+    fn default() -> Self {
+        Self { enabled: false, dir: default_self_dir(), build_command: default_self_build(), binary: default_self_binary() }
+    }
+}
+
+fn default_self_dir() -> PathBuf {
+    PathBuf::from(".")
+}
+fn default_self_build() -> Vec<String> {
+    vec!["cargo".into(), "build".into(), "--release".into(), "--locked".into()]
+}
+fn default_self_binary() -> PathBuf {
+    PathBuf::from(if cfg!(windows) { "target/release/version-control.exe" } else { "target/release/version-control" })
 }
 
 /// `[autoloop]`: the repeat cycle behind `--loop`.
