@@ -374,7 +374,9 @@ mod script_tests {
         };
         sh("git init -q . && cargo generate-lockfile -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm init", &src);
         let script = std::env::current_dir().unwrap().join("scripts/remediate.sh");
-        let out = sh(&format!("VC_FIX_DIR={} bash {} t {} . '*' lockrefresh", d.join("work").display(), script.display(), src.display()), &d);
+        // bash eats backslashes in Windows paths: hand it forward slashes.
+        let fwd = |p: &std::path::Path| p.display().to_string().replace('\\', "/");
+        let out = sh(&format!("VC_FIX_DIR={} bash {} t {} . '*' lockrefresh", fwd(&d.join("work")), fwd(&script), fwd(&src)), &d);
         assert!(out.contains("RESULT t: 変更なし"), "{out}");
         let _ = std::fs::remove_dir_all(&d);
     }

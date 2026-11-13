@@ -149,9 +149,9 @@ fn main() -> Result<()> {
                 notes.push(format!("version-control の自己更新に失敗しました: {e}"));
             }
         }
-        if args.self_update && !args.auto && !args.fix && !args.sync {
-            return Ok(());
-        }
+    }
+    if args.self_update && !args.auto && !args.fix && !args.sync {
+        return Ok(()); // `--self-update` alone only updates (also after the re-run by the new build)
     }
 
     if args.test_notify {
