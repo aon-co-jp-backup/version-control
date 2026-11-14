@@ -127,7 +127,7 @@ pub struct RouteCount {
     pub pages: usize,
 }
 
-const SKIP_DIRS: [&str; 18] = ["target", "node_modules", ".git", "vendor", "advisory-db", "dist", ".deps", ".vscode-test", ".vscode-test-web", "tests", "examples", "benches", "site", "clients", "mock", "mocks", "fixtures", "testdata"];
+const SKIP_DIRS: [&str; 19] = ["target", "node_modules", ".git", "vendor", "advisory-db", "dist", ".deps", ".vscode-test", ".vscode-test-web", "tests", "examples", "benches", "site", "clients", "mock", "mocks", "fixtures", "testdata", "make-disk-legacy"];
 
 fn re(p: &str) -> Regex {
     Regex::new(p).expect("static regex")

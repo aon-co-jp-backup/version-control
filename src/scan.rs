@@ -28,7 +28,8 @@ pub struct Dep {
     pub file: String,
 }
 
-pub const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "vendor", "dist", "build", ".venv", "pkg"];
+// make-disk-legacy: 引っ越し前の資料として残したコード(単体ではビルドできない)。依存の警告対象にしない(2026-11-14、ユーザー指示)。
+pub const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "vendor", "dist", "build", ".venv", "pkg", "make-disk-legacy"];
 
 pub fn find_manifests(repo: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
