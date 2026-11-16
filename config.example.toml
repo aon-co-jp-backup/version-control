@@ -6,7 +6,7 @@ root = "F:/"
 # Repositories whose names must not appear on the public dashboard.
 private = ["aruaru-db-archive", "realdata.pro"]
 site_dir = "site"
-exclude = ["_anon", "_gen", "tmp", "var", "open-media-test", "make-disk-target-alt", "make-disk-target-rel"]
+exclude = ["_anon", "_gen", "tmp", "var", "open-media-test", "make-disk-target-alt", "make-disk-target-rel", "ows-base", "ows-stream"]
 
 # Maintainers that normally keep things current. If none of them answers, every
 # non-trivial finding is escalated to Claude.

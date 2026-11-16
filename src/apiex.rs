@@ -150,23 +150,33 @@ pub fn is_api_like(p: &str) -> bool {
 /// Paths whose shape somebody else's standard fixes (see exceptions.toml) or that are plain browser assets.
 pub fn is_exception_path(p: &str) -> bool {
     let l = p.to_ascii_lowercase();
-    l.starts_with("/.well-known/")
+    // Standards fixed by someone else: excused wherever they appear (also under /api/).
+    if l.starts_with("/.well-known/")
         || l.starts_with("/graphql")
-        || l.starts_with("/scim/")
         || l == "/mcp"
-        || l.starts_with("/demo")
+        || l.starts_with("/scim/") // SCIM (RFC 7644) fixes the shape, even under /v2/
+        || l.contains("health")
+        || l.contains("webhook")
+        || l.contains("callback")
+        || l == "/"
+    {
+        return true;
+    }
+    // Under an API-looking prefix nothing below is excused as "just a page or an asset":
+    // `/api/assets/:id` or `/api/users.json` is our own REST and must be counted.
+    let under_api = l == "/api" || l.starts_with("/api/") || l.contains("/admin/") || l.contains("/rest/") || Regex::new(r"/v\d+(/|$)").is_ok_and(|r| r.is_match(&l));
+    if under_api {
+        return false;
+    }
+    l.starts_with("/demo")
         || l == "/*path" // catch-all fallback (404 page / git smart HTTP / static), not an API route
         || l.starts_with("/page/") // content pages
         || l.starts_with("/ranking/")
         || l.contains("/fonts/") // font file downloads (assets)
-        || l.contains("health")
-        || l.contains("webhook")
-        || l.contains("callback")
         || l.contains("/static")
         || l.contains("/assets")
         || l.contains("favicon")
         || l.contains("robots.txt")
-        || l == "/"
         || [".html", ".js", ".css", ".png", ".ico", ".svg", ".wasm", ".webp", ".json"].iter().any(|e| l.ends_with(e))
 }
 
@@ -849,6 +859,12 @@ mod tests {
         for p in ["/healthz", "/api/health", "/.well-known/acme-challenge/:token", "/webhook/line", "/api/auth/google/callback", "/", "/app.js"] {
             assert!(is_exception_path(p), "{p}");
         }
+        assert!(is_exception_path("/scim/v2/Users/:id"));
+        assert!(!is_exception_path("/v1/ocr/fonts/:name"));
+        assert!(!is_exception_path("/api/assets/:id"));
+        assert!(!is_exception_path("/api/users.json"));
+        assert!(!is_exception_path("/admin/static/x"));
+        assert!(is_exception_path("/assets/app.css"));
         assert!(!is_exception_path("/api/users"));
         assert!(!is_exception_path("/admin/stats"));
     }
