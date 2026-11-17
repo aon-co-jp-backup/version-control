@@ -1,6 +1,8 @@
 # Copy to config.toml (git-ignored). Secrets are passed as paths to txt files, never written here.
 
-# Folder that holds all the repository clones (one level down).
+# Folder (or drive) that holds all the repository clones, one level down.
+# Set this to YOUR OWN drive/folder (e.g. "D:/", "C:/Users/you/src", "/home/you/src"); "F:/" is only the author's example.
+# 自分のドライブ/フォルダを指定する(例 "D:/" や "/home/you/src")。"F:/" は作者の環境の例。
 root = "F:/"
 # Repositories to skip (folder names).
 # Repositories whose names must not appear on the public dashboard.
