@@ -202,9 +202,6 @@ where = "crates/open-web-server-gateway/src/handlers/web_vhost.rs:62, 112(serve_
 [[exception.use]]
 repo = "runo.tokyo"
 where = "src/lib.rs:577, 589(serve_static_file)"
-[[exception.use]]
-repo = "aruaru-llm"
-where = "src/main.rs:2146(GET /v1/ocr/fonts/:name、OCR用フォントのバイナリ配布。JSONを返さない静的ファイル。ブラウザ・クライアントがURLで直接取得する)"
 
 [[exception]]
 id = "graphiql-docs-ui"
