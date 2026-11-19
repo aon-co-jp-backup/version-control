@@ -43,6 +43,7 @@ struct Args {
     dry_run: bool,
     force: bool,
     test_notify: bool,
+    notify_file: Option<PathBuf>,
     no_fetch: bool,
     demo: bool,
     no_api: bool,
@@ -60,7 +61,7 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, auto: false, review: false, sync: false, self_update: false, only: None };
+    let mut a = Args { loop_run: false, goal: None, config: PathBuf::from("config.toml"), dry_run: false, force: false, test_notify: false, notify_file: None, no_fetch: false, demo: false, no_api: false, api_only: false, fix: false, apply: false, push: false, pr: false, hw: false, auto: false, review: false, sync: false, self_update: false, only: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -68,6 +69,7 @@ fn parse_args() -> Args {
             "--dry-run" => a.dry_run = true,
             "--force" => a.force = true,
             "--test-notify" => a.test_notify = true,
+            "--notify-file" => a.notify_file = it.next().map(PathBuf::from),
             "--no-fetch" => a.no_fetch = true,
             "--demo" => a.demo = true,
             "--no-api" => a.no_api = true,
@@ -92,6 +94,7 @@ fn parse_args() -> Args {
   --review       triage the open vc/ pull requests: merge the ones that stay inside their semver range (needs [review] auto_merge), list what a person must check for the rest
   --sync         fast-forward clean, behind-only clones (needs [fix] sync_clones)
   --self-update  update this program from its own repository (needs [selfupdate] enabled), then re-run
+  --notify-file FILE  send FILE (line 1 = subject, rest = body) to the registered e-mail/LINE and exit; exit 2 if nothing was delivered
   --version      print the version
   --edit-dep FILE NAME LATEST   raise one requirement in a Cargo.toml / package.json (used by scripts/upgrade.sh)");
                 std::process::exit(0);
@@ -159,6 +162,22 @@ fn main() -> Result<()> {
         return Ok(()); // `--self-update` alone only updates (also after the re-run by the new build)
     }
 
+    if let Some(f) = &args.notify_file {
+        // 他のツール(pl2pl の自動追従など)からの通知: 1行目=件名、2行目以降=本文。登録済みのメール/LINEへ送る。
+        let t = std::fs::read_to_string(f).with_context(|| format!("cannot read {}", f.display()))?;
+        let mut lines = t.lines();
+        let subject = lines.next().unwrap_or("[version-control] notice").to_string();
+        let body: String = lines.collect::<Vec<_>>().join("
+");
+        let o = notify::deliver(&cfg.notify, &subject, &body, &notify::pack_for_line(&[format!("{subject}
+{body}")], 4500));
+        println!("e-mail: {}", o.email.as_ref().map(|_| "OK".to_string()).unwrap_or_else(|e| format!("NG ({e})")));
+        println!("LINE  : {}", o.line.as_ref().map(|_| "OK".to_string()).unwrap_or_else(|e| format!("NG ({e})")));
+        if !o.any_ok() {
+            std::process::exit(2);
+        }
+        return Ok(());
+    }
     if args.test_notify {
         let o = notify::deliver(&cfg.notify, "[version-control] 通知の試験", "version-control の通知試験です。このメールが届けば経路は正常です。", &["version-control の通知試験です。このメッセージが届けばLINEの経路は正常です。".to_string()]);
         println!("e-mail: {}", o.email.as_ref().map(|_| "OK".to_string()).unwrap_or_else(|e| format!("NG ({e})")));
