@@ -219,3 +219,7 @@ Beyond pasting a message, this runs **unattended repeat cycles until the work re
 ## 2026-11-13 追加 / Added
 - **日本語**: `--auto`(同期・脆弱性修正・古い要求の更新をPRに)と `--self-update`(自己更新、失敗時は巻き戻し)を追加。詳細・安全策・未確認事項は `README.md` 末尾の節。守ること: 作業は新規cloneのみ、強制pushしない、既定ブランチへ直接pushしない、テスト不合格はpushしない、ビルドする機械でだけ(本番VPSで `[fix] enabled` や `[selfupdate]` のビルドを勝手に有効にしない)。要求の書き換えは `src/bump.rs`(テストあり)に集約。日本語を含むファイルを書き換えるときは、bash の引用に頼らずスクリプトファイル(Python/UTF-8)か Edit/Write を使う。
 - **English**: Added `--auto` (sync, vulnerability fixes, raising outdated requirements as pull requests) and `--self-update` (rolls back on failure). Details, safeguards and what is unverified are in the last section of `README.md`. Rules: fresh clones only, no force push, no direct push to the default branch, never push failing tests, build machines only (do not enable `[fix] enabled` or a `[selfupdate]` build on the production VPS without asking). Requirement rewriting lives in `src/bump.rs` (tested).
+
+## 2026-11-20 低VRAM・VRAM無し端末(VPS・PC・タブレット・スマホ)でのAI/LLMのノウハウ / Low-VRAM AI know-how
+日本語: AI・LLMを使う機能(推論・要約・補完・OCR等)は、[aruaru-llm/docs/LOW-VRAM-KNOWHOW.md](https://github.com/aon-co-jp/aruaru-llm/blob/main/docs/LOW-VRAM-KNOWHOW.md) に従う: 短い文脈・上限・タイムアウト、VPSで重い推論を直接回さない、メモリが足りなければ小さいモデルへ自動で下げる。広い桁(FP64以上)は本番で使わず、試験の正解にだけ使う。
+English: Features that use AI/LLMs follow the file above: short context, caps and timeouts, no heavy inference directly on the VPS, auto-downgrade to a smaller model when memory is short. Wide floats (FP64 and above) are for test oracles only, not production.
