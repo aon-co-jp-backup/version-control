@@ -494,8 +494,8 @@ fn http_link(l: &str) -> bool {
 }
 
 fn search(http: &reqwest::blocking::Client, cfg: &ApiEx, q: &str) -> Result<Vec<Hit>> {
-    let url = format!("{}/v1/search", cfg.search_url.trim_end_matches('/'));
-    let resp = http.get(&url).query(&[("q", q), ("n", &cfg.search_n.to_string())]).send()?;
+    let url = format!("{}/aruaru_search.v1.Search/Search", cfg.search_url.trim_end_matches('/'));
+    let resp = http.post(&url).json(&json!({"q": q, "n": cfg.search_n})).send()?;
     if !resp.status().is_success() {
         return Err(anyhow!("HTTP {}", resp.status()));
     }
