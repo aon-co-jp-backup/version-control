@@ -223,3 +223,10 @@ Beyond pasting a message, this runs **unattended repeat cycles until the work re
 ## 2026-11-20 低VRAM・VRAM無し端末(VPS・PC・タブレット・スマホ)でのAI/LLMのノウハウ / Low-VRAM AI know-how
 日本語: AI・LLMを使う機能(推論・要約・補完・OCR等)は、[aruaru-llm/docs/LOW-VRAM-KNOWHOW.md](https://github.com/aon-co-jp/aruaru-llm/blob/main/docs/LOW-VRAM-KNOWHOW.md) に従う: 短い文脈・上限・タイムアウト、VPSで重い推論を直接回さない、メモリが足りなければ小さいモデルへ自動で下げる。広い桁(FP64以上)は本番で使わず、試験の正解にだけ使う。
 English: Features that use AI/LLMs follow the file above: short context, caps and timeouts, no heavy inference directly on the VPS, auto-downgrade to a smaller model when memory is short. Wide floats (FP64 and above) are for test oracles only, not production.
+
+## REST 全廃の状況 / REST abolition status (2026-11-24)
+
+**日本語.** version-control 自身は HTTP サーバーを持たず(巡回ツール)、公開する REST はありません。呼び出す側は Connect に揃えました: aruaru-llm は `POST /aruaru_llm.v1.Llm/Generate`、aruaru-search は `POST /aruaru_search.v1.Search/Search`(本文 `{"q","n"}`)。旧 `GET /v1/search` は aruaru-search 側で削除済みだったため、この移行で検索の巡回が再び動く。通知先 `notify_url` は easy-web.tokyo 側の仕様に従う。単体テスト 42 件 pass。実サーバーへの通し確認は未実施(未検証)。
+
+**English.** version-control is a patrol tool and runs no HTTP server, so it exposes no REST API. Its client calls now use Connect: aruaru-llm `POST /aruaru_llm.v1.Llm/Generate`, aruaru-search `POST /aruaru_search.v1.Search/Search` (body `{"q","n"}`). The old `GET /v1/search` had already been removed from aruaru-search, so the search patrol was broken until this change. `notify_url` follows easy-web.tokyo. 42 unit tests pass. A run against live servers has **not** been done (unverified).
+
