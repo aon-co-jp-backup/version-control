@@ -788,7 +788,11 @@ fn run_agent_for_failures(cfg: &Config, repo: &str, items: &[(String, String)], 
 
 /// A Connect method URL (`/<package>.v1.<Service>/<Method>`) must be called with POST and a JSON body; anything else is a plain GET.
 fn is_connect_url(url: &str) -> bool {
-    url.rsplit('/').nth(1).is_some_and(|svc| svc.contains(".v") && svc.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))
+    url.rsplit('/').nth(1).is_some_and(|svc| {
+        // Connect のサービス名 `パッケージ.Service`(版なし。`.v1` は即削除済み)
+        svc.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && svc.rsplit('.').next().is_some_and(|last| last != svc && last.chars().next().is_some_and(|c| c.is_ascii_uppercase()))
+    })
 }
 
 fn probe(h: &reqwest::blocking::Client, url: &str) -> bool {
@@ -802,7 +806,7 @@ mod probe_tests {
 
     #[test]
     fn connect_urls_are_recognised() {
-        assert!(is_connect_url("http://127.0.0.1:4600/aruaru_llm.v1.Llm/Accelerators"));
+        assert!(is_connect_url("http://127.0.0.1:4600/aruaru_llm.Llm/Accelerators"));
         assert!(!is_connect_url("http://127.0.0.1:4600/v1/accelerators"));
         assert!(!is_connect_url("http://127.0.0.1:4600/health"));
     }

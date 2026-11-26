@@ -48,7 +48,7 @@ fn gpus() -> Vec<String> {
 }
 
 fn connect(http: &reqwest::blocking::Client, base: &str, method: &str) -> Option<String> {
-    let url = format!("{}/aruaru_llm.v1.Llm/{}", base.trim_end_matches('/'), method);
+    let url = format!("{}/aruaru_llm.Llm/{}", base.trim_end_matches('/'), method);
     let r = http.post(url).json(&serde_json::json!({})).send().ok()?;
     if !r.status().is_success() {
         return None;
@@ -157,7 +157,7 @@ pub fn summarize(cfg: &Config, work_copy: &str) -> Option<String> {
     let stat = Command::new("git").arg("-C").arg(work_copy).args(["show", "--stat", "--format=%s", "HEAD"]).output().ok().filter(|o| o.status.success())?;
     let stat: String = String::from_utf8_lossy(&stat.stdout).chars().take(600).collect();
     let http = reqwest::blocking::Client::builder().timeout(Duration::from_secs(cfg.apiex.llm_timeout_secs)).build().ok()?;
-    let url = format!("{}/aruaru_llm.v1.Llm/Generate", cfg.apiex.llm_url.trim_end_matches('/'));
+    let url = format!("{}/aruaru_llm.Llm/Generate", cfg.apiex.llm_url.trim_end_matches('/'));
     let r = http.post(url).json(&serde_json::json!({"prompt": format!("Dependency update commit: {stat}\nOne-sentence summary:"), "max_new_tokens": 48})).send().ok()?;
     if !r.status().is_success() {
         return None;
