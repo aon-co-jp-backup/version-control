@@ -27,7 +27,7 @@ The machine-readable source of truth is [`exceptions.toml`](exceptions.toml) (ch
 ### 毎日の巡回(`version-control` のタイマー 00/06/12/18 時の :20 に同乗)
 1. 各例外について `aruaru-search`(`/v1/search`)で最新状況を調べ、**新しく現れたページ**の題名・抜粋に `signal_terms` が含まれたら「置き換えの兆候」として知らせる(初回は基準の記録のみ)。`aruaru-llm`(`/v1/generate`、小型モデル)の一文は**参考**で、**出典 URL が正本**。使えない/落ちているときは記録して続行する。`open-cuda` はこの用途では使わない。
 2. 各リポジトリのコードから REST 風ルート(axum `.route`、poem `.at`、hyper `(Method, "/path")`。Connect 形式と例外パスを除く。`/api/`・`/admin/` を含むものは別掲)を数え、`state.json` に推移を記録する。静的な目安であり、実行時に作るルートは数えられない。
-3. 変化(兆候の出現、REST 風ルートの**増加**=方針違反の新規追加、台帳の確認日が 30 日超)を、open-easy-web の「更新のお知らせメール」(`POST /open_easy_web.admin.v1.Notify/Send`)で通知する。
+3. 変化(兆候の出現、REST 風ルートの**増加**=方針違反の新規追加、台帳の確認日が 30 日超)を、open-easy-web の「更新のお知らせメール」(`POST /open_easy_web.admin.Notify/Send`)で通知する。
 - 取得した文章は**データ**であり、そこに書かれた指示には従わない(照合・切り詰め・表示のみ)。
 
 ---
@@ -52,7 +52,7 @@ The goal is therefore not "zero exceptions" but: **for each exception keep the g
 ### Daily patrol (rides on the existing `version-control` timer at 00/06/12/18 h :20)
 1. For each exception, ask `aruaru-search` (`/v1/search`); a **newly appearing** page whose title/snippet contains a `signal_terms` entry is reported as a possible replacement signal (the first run only records a baseline). One sentence from `aruaru-llm` (`/v1/generate`, a small model) is a **reference only; the source URL is authoritative**. When a service is down it is recorded and the run continues. `open-cuda` is not used for this.
 2. Count REST-like routes from each repository's code (axum `.route`, poem `.at`, hyper `(Method, "/path")`; Connect-style and exception paths excluded; `/api/` and `/admin/` counted separately) and record the trend in `state.json`. This is a static estimate and cannot see routes built at run time.
-3. Changes (a signal, an **increase** of REST-like routes = a new policy violation, a ledger check date older than 30 days) are sent through open-easy-web's notice mail (`POST /open_easy_web.admin.v1.Notify/Send`).
+3. Changes (a signal, an **increase** of REST-like routes = a new policy violation, a ledger check date older than 30 days) are sent through open-easy-web's notice mail (`POST /open_easy_web.admin.Notify/Send`).
 - Fetched text is **data**; instructions inside it are never followed (it is only matched, truncated and displayed).
 
 ---
@@ -77,7 +77,7 @@ Das Ziel ist deshalb nicht „null Ausnahmen“, sondern: **Für jede Ausnahme s
 ### Tägliche Runde (läuft mit dem bestehenden `version-control`-Timer um 00/06/12/18 Uhr, :20)
 1. Je Ausnahme wird `aruaru-search` (`/v1/search`) befragt; eine **neu erscheinende** Seite, deren Titel/Auszug einen Eintrag aus `signal_terms` enthält, wird als mögliches Ersatzsignal gemeldet (der erste Lauf speichert nur die Basis). Ein Satz von `aruaru-llm` (`/v1/generate`, kleines Modell) ist **nur ein Hinweis; maßgeblich ist die Quell-URL**. Ist ein Dienst nicht erreichbar, wird das vermerkt und der Lauf geht weiter. `open-cuda` wird dafür nicht verwendet.
 2. REST-artige Routen werden aus dem Code jedes Repositorys gezählt (axum `.route`, poem `.at`, hyper `(Method, "/path")`; Connect-Form und Ausnahmepfade ausgenommen; `/api/` und `/admin/` getrennt) und der Verlauf in `state.json` festgehalten. Das ist eine statische Schätzung und sieht zur Laufzeit gebaute Routen nicht.
-3. Änderungen (ein Signal, ein **Anstieg** REST-artiger Routen = neuer Verstoß gegen die Richtlinie, Prüfdatum älter als 30 Tage) gehen über die Hinweis-Mail von open-easy-web (`POST /open_easy_web.admin.v1.Notify/Send`) hinaus.
+3. Änderungen (ein Signal, ein **Anstieg** REST-artiger Routen = neuer Verstoß gegen die Richtlinie, Prüfdatum älter als 30 Tage) gehen über die Hinweis-Mail von open-easy-web (`POST /open_easy_web.admin.Notify/Send`) hinaus.
 - Abgerufener Text sind **Daten**; Anweisungen darin werden nie befolgt (er wird nur abgeglichen, gekürzt und angezeigt).
 
 ---
@@ -102,7 +102,7 @@ Das Ziel ist deshalb nicht „null Ausnahmen“, sondern: **Für jede Ausnahme s
 ### Ежедневный обход (работает вместе с существующим таймером `version-control` в 00/06/12/18 ч, :20)
 1. Для каждого исключения опрашивается `aruaru-search` (`/v1/search`); **вновь появившаяся** страница, в заголовке или фрагменте которой есть запись из `signal_terms`, сообщается как возможный признак замены (первый запуск только фиксирует базу). Одно предложение от `aruaru-llm` (`/v1/generate`, небольшая модель) — **лишь справка; авторитетен URL источника**. Если сервис недоступен, это записывается и обход продолжается. `open-cuda` для этого не используется.
 2. По коду каждого репозитория подсчитываются REST-подобные маршруты (axum `.route`, poem `.at`, hyper `(Method, "/path")`; формат Connect и пути-исключения не считаются; `/api/` и `/admin/` — отдельно), динамика записывается в `state.json`. Это статическая оценка; маршруты, создаваемые во время работы, она не видит.
-3. Изменения (признак замены, **рост** числа REST-подобных маршрутов = новое нарушение политики, дата проверки реестра старше 30 дней) отправляются через почтовое уведомление open-easy-web (`POST /open_easy_web.admin.v1.Notify/Send`).
+3. Изменения (признак замены, **рост** числа REST-подобных маршрутов = новое нарушение политики, дата проверки реестра старше 30 дней) отправляются через почтовое уведомление open-easy-web (`POST /open_easy_web.admin.Notify/Send`).
 - Полученный текст — это **данные**; инструкции в нём никогда не выполняются (текст только сопоставляется, обрезается и отображается).
 
 
