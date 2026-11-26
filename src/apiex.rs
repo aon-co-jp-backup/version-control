@@ -133,7 +133,7 @@ fn re(p: &str) -> Regex {
     Regex::new(p).expect("static regex")
 }
 
-/// Connect paths look like `/open_easy_web.admin.v1.Notify/Send`: a dotted package, then `Service/Method`.
+/// Connect paths look like `/open_easy_web.admin.Notify/Send`: a dotted package, then `Service/Method`.
 pub fn is_connect_path(p: &str) -> bool {
     // `<dotted.package>.<Service>/<Method>` as any pair of adjacent segments (a mount prefix such as `/ime/api/` may come first)
     let segs: Vec<&str> = p.trim_start_matches('/').split('/').collect();
@@ -599,7 +599,7 @@ fn research(http: &reqwest::blocking::Client, cfg: &ApiEx, e: &Exception, st: &m
 
 pub fn send_notice(http: &reqwest::blocking::Client, cfg: &ApiEx, kind: &str, subject: &str, body: &str) -> Result<()> {
     let token = std::env::var(&cfg.token_env).map_err(|_| anyhow!("environment variable {} is not set", cfg.token_env))?;
-    let url = format!("{}/open_easy_web.admin.v1.Notify/Send", cfg.notify_url.trim_end_matches('/'));
+    let url = format!("{}/open_easy_web.admin.Notify/Send", cfg.notify_url.trim_end_matches('/'));
     let resp = http
         .post(&url)
         .header("content-type", "application/json")
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn connect_vs_rest_paths() {
-        assert!(is_connect_path("/open_easy_web.admin.v1.Notify/Send"));
+        assert!(is_connect_path("/open_easy_web.admin.Notify/Send"));
         assert!(is_connect_path("/grpc.health.v1.Health/Check"));
         assert!(is_connect_path("/rs_sync.v1.Sync/DeleteAccount/:id"));
         assert!(is_connect_path("/rs_sync.v1.Sync/:method"));
